@@ -39,7 +39,7 @@ test('crew.yml: no pr-rules, harness from GitHub Packages, check on a PR takes c
   const yml = read('templates', 'product', '.github', 'workflows', 'crew.yml');
   assert.ok(!yml.includes('change-approved'));
   assert.ok(!yml.includes('\n  pr-rules:'));
-  assert.ok(yml.includes('npm install -g "${{ vars.CREW_HARNESS }}"'));
+  assert.ok(yml.includes('npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"'));
   assert.ok(!yml.includes('npm.pkg.github.com') && !yml.includes('PACKAGES_TOKEN'), 'public install: no registry, no token');
   assert.doesNotMatch(yml, /packages: read/);
 

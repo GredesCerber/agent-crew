@@ -76,8 +76,10 @@ Needs Node.js 22+, git, the [GitHub CLI](https://cli.github.com/) (`gh auth logi
 The tool installs straight from the public GitHub repo (no registry, no tokens):
 
 ```bash
-npm install -g github:GredesCerber/agent-crew#v0.4.0
+npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1
 ```
+
+npm 12+ blocks installs from git by default; `--allow-git=all` allows it for this command (older npm ignores the flag).
 
 Or clone it and link it (no dependencies; `npm link` only puts `crew` on PATH):
 

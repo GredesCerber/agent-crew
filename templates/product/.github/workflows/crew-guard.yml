@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: Install agent-crew (public GitHub repo, pinned tag)
-        run: npm install -g "${{ vars.CREW_HARNESS }}"
+        run: npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"
       - name: crew guard
         env:
           GH_TOKEN: "${{ github.token }}"
