@@ -76,10 +76,10 @@ crew up --join owner/name
 Инструмент ставится прямо из публичного репо GitHub (без реестра и токенов):
 
 ```bash
-npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1
+npm install -g @gredescerber/agent-crew
 ```
 
-npm 12+ по умолчанию запрещает установку из git; `--allow-git=all` разрешает её для этой команды (старые npm флаг игнорируют).
+Команда называется `crew`. Напрямую из GitHub: `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.5.0` (npm 12+ без флага запрещает установку из git).
 
 Или клонировать и подключить (зависимостей нет; `npm link` только кладёт `crew` в PATH):
 

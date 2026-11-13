@@ -28,7 +28,7 @@ This file is read by an **agent** (Claude Code or Codex), not by a human. The hu
 3. Check `crew --version`. If the command is missing, install the tool straight from the public GitHub repo (no registry, no token):
 
    ```bash
-   npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1
+   npm install -g @gredescerber/agent-crew
    ```
 
    Alternative: clone and link.
@@ -125,7 +125,7 @@ Copy into a Claude Code or Codex chat and fill in your values. You can write to 
 
 **Captain:**
 
-> Set up our agent-crew. If the `crew` command is missing, install it with `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1`. Then read the `docs/AGENT-SETUP.md` of that package (or fetch it from github.com/GredesCerber/agent-crew) and do step 0 and the "Captain" section. Parameters: repo `<owner>/<name>`, public, stack `web-node`, members `<alice>,<bob>`. Create the project in the current folder. Do not type passwords: tell me what you need from me as a list.
+> Set up our agent-crew. If the `crew` command is missing, install it with `npm install -g @gredescerber/agent-crew`. Then read the `docs/AGENT-SETUP.md` of that package (or fetch it from github.com/GredesCerber/agent-crew) and do step 0 and the "Captain" section. Parameters: repo `<owner>/<name>`, public, stack `web-node`, members `<alice>,<bob>`. Create the project in the current folder. Do not type passwords: tell me what you need from me as a list.
 
 **Plan (captain, after everyone has joined):**
 
@@ -135,4 +135,4 @@ Copy into a Claude Code or Codex chat and fill in your values. You can write to 
 
 **Member:**
 
-> Connect me to the project. If the `crew` command is missing, install it with `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1`. Then read the `docs/AGENT-SETUP.md` of that package (or fetch it from github.com/GredesCerber/agent-crew) and do step 0 and the "Member" section for the repo `<owner>/<name>`. Do not type passwords: tell me what you need from me as a list.
+> Connect me to the project. If the `crew` command is missing, install it with `npm install -g @gredescerber/agent-crew`. Then read the `docs/AGENT-SETUP.md` of that package (or fetch it from github.com/GredesCerber/agent-crew) and do step 0 and the "Member" section for the repo `<owner>/<name>`. Do not type passwords: tell me what you need from me as a list.

@@ -1,7 +1,7 @@
 # Code checks: linter, types, tests from crew.config.json. They work the same for Claude, Codex, and humans.
 # PR rules (protected files, acceptance tests, agent review) live in crew-guard.yml, which runs from main.
-# Requires the variable CREW_HARNESS (Settings → Variables), e.g. github:GredesCerber/agent-crew#v0.4.1
-# (installed straight from the public GitHub repo at a pinned tag; no registry, no token).
+# Requires the variable CREW_HARNESS (Settings → Variables), e.g. @gredescerber/agent-crew@0.5.0
+# (installed from the public npm registry at a pinned version; no token).
 # Main's protection, the variable, and the labels are set up by `crew github setup --apply`.
 name: crew
 
@@ -34,8 +34,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: astral-sh/setup-uv@v6
-      - name: Install agent-crew (public GitHub repo, pinned tag)
-        run: npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"
+      - name: Install agent-crew (npm, pinned version)
+        run: npm install -g "${{ vars.CREW_HARNESS }}"
       - name: Generated configs are up to date
         run: crew adapters build --check --json
       # On PRs the checks come from the base commit: an agent cannot "go green" by replacing check in crew.config.json with true.
@@ -77,8 +77,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: Install agent-crew (public GitHub repo, pinned tag)
-        run: npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"
+      - name: Install agent-crew (npm, pinned version)
+        run: npm install -g "${{ vars.CREW_HARNESS }}"
       - env: { GH_TOKEN: "${{ github.token }}" }
         run: crew task sweep --json
       # A same-vendor review is counted via fallback_minutes, but the status will not recompute without an event.
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: Install agent-crew (public GitHub repo, pinned tag)
-        run: npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"
+      - name: Install agent-crew (npm, pinned version)
+        run: npm install -g "${{ vars.CREW_HARNESS }}"
       - env: { GH_TOKEN: "${{ github.token }}" }
         run: crew task promote --json

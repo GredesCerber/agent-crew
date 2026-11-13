@@ -1,6 +1,6 @@
 {
-  "name": "agent-crew",
-  "version": "0.4.1",
+  "name": "@gredescerber/agent-crew",
+  "version": "0.5.0",
   "description": "Vendor-neutral crew of coding agents (Claude Code, Codex, ...) working as one team through GitHub Issues and PRs",
   "type": "module",
   "bin": {
@@ -37,5 +37,12 @@
     "multi-agent",
     "github",
     "mcp"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/GredesCerber/agent-crew#readme",
+  "bugs": {
+    "url": "https://github.com/GredesCerber/agent-crew/issues"
+  }
 }

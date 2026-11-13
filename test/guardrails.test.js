@@ -39,7 +39,7 @@ test('crew.yml: no pr-rules, harness from GitHub Packages, check on a PR takes c
   const yml = read('templates', 'product', '.github', 'workflows', 'crew.yml');
   assert.ok(!yml.includes('change-approved'));
   assert.ok(!yml.includes('\n  pr-rules:'));
-  assert.ok(yml.includes('npm install -g --allow-git=all "${{ vars.CREW_HARNESS }}"'));
+  assert.ok(yml.includes('npm install -g "${{ vars.CREW_HARNESS }}"'));
   assert.ok(!yml.includes('npm.pkg.github.com') && !yml.includes('PACKAGES_TOKEN'), 'public install: no registry, no token');
   assert.doesNotMatch(yml, /packages: read/);
 
@@ -92,8 +92,8 @@ test('planSetup: the CREW_HARNESS variable - upsert, default value and from an a
   assert.equal(v.path, 'repos/acme/app/actions/variables/CREW_HARNESS');
   assert.deepEqual(v.body, { name: 'CREW_HARNESS', value: DEFAULT_HARNESS });
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(DEFAULT_HARNESS, `github:GredesCerber/agent-crew#v${pkg.version}`, 'pinned tag');
-  assert.equal(pkg.publishConfig, undefined);
+  assert.equal(DEFAULT_HARNESS, `@gredescerber/agent-crew@${pkg.version}`, 'pinned version');
+  assert.equal(pkg.publishConfig.access, 'public');
   assert.deepEqual(v.if_missing, { method: 'POST', path: 'repos/acme/app/actions/variables', body: v.body });
   const custom = planSetup({ repo: 'acme/app', harness: 'github:org/fork' }).find((s) => s.id === 'variable:CREW_HARNESS');
   assert.equal(custom.body.value, 'github:org/fork');

@@ -12,9 +12,9 @@ import { HARNESS_ROOT } from '../core/config.js';
 import { GUARD_CONTEXT } from '../core/guard.js';
 
 export const PKG = JSON.parse(readFileSync(join(HARNESS_ROOT, 'package.json'), 'utf8'));
-/** Public repo of the tool; CI installs exactly this tagged version straight from GitHub (no registry, no token). */
+/** The npm package with a pinned version: CI installs exactly this version (public registry, no token). */
 export const HARNESS_REPO = 'GredesCerber/agent-crew';
-export const DEFAULT_HARNESS = `github:${HARNESS_REPO}#v${PKG.version}`;
+export const DEFAULT_HARNESS = `${PKG.name}@${PKG.version}`;
 // check — the name of the check run job from crew.yml (in branch protection — just "check").
 // crew-guard — a commit status set by the crew-guard.yml workflow via GITHUB_TOKEN.
 export const REQUIRED_CHECKS = ['check', GUARD_CONTEXT];

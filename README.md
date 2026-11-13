@@ -76,10 +76,10 @@ Needs Node.js 22+, git, the [GitHub CLI](https://cli.github.com/) (`gh auth logi
 The tool installs straight from the public GitHub repo (no registry, no tokens):
 
 ```bash
-npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.4.1
+npm install -g @gredescerber/agent-crew
 ```
 
-npm 12+ blocks installs from git by default; `--allow-git=all` allows it for this command (older npm ignores the flag).
+The command is `crew`. Straight from GitHub instead: `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.5.0` (npm 12+ blocks git installs without the flag).
 
 Or clone it and link it (no dependencies; `npm link` only puts `crew` on PATH):
 
@@ -146,7 +146,7 @@ With `--apply` it:
 
 - protects `main`: PRs only, green `check` (tests) and `crew-guard` (PR rules + agent review) required, no force-push. **Zero manual approvals**: a human is not an "approve button";
 - enables auto-merge and plain merge commits only (squash and rebase are off because they lose the `Agent`/`Issue` trailers);
-- sets the `CREW_HARNESS` repo variable: the install spec CI uses, by default `github:GredesCerber/agent-crew#v<version>` (another one via `--harness`);
+- sets the `CREW_HARNESS` repo variable: the install spec CI uses, by default `@gredescerber/agent-crew@<version>` (another one via `--harness`);
 - creates or updates all labels (like `crew labels sync`).
 
 Re-running is safe. The repo is taken from the current folder (`gh repo view`) or from `--repo owner/name`; another branch via `--branch`.
