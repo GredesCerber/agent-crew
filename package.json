@@ -1,0 +1,41 @@
+{
+  "name": "agent-crew",
+  "version": "0.4.0",
+  "description": "Vendor-neutral crew of coding agents (Claude Code, Codex, ...) working as one team through GitHub Issues and PRs",
+  "type": "module",
+  "bin": {
+    "crew": "bin/crew.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "crew": "node bin/crew.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "adapters",
+    "roles",
+    "skills",
+    "templates",
+    "ecc",
+    "AGENTS.md",
+    "docs/AGENT-SETUP.md",
+    "evals"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GredesCerber/agent-crew.git"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "multi-agent",
+    "github",
+    "mcp"
+  ]
+}

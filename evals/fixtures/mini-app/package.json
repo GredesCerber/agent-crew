@@ -1,0 +1,10 @@
+{
+  "name": "mini-app",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference mini project for crew eval: cart, pagination, HTTP handlers per contract",
+  "scripts": {
+    "test": "node --test"
+  }
+}

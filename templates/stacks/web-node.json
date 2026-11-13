@@ -1,0 +1,70 @@
+{
+  "about": "React (Vite + TypeScript) + Node.js API (Fastify + TypeScript). Everything in one language - faster for agents.",
+  "areas": {
+    "web": [
+      "web/**"
+    ],
+    "api": [
+      "api/**"
+    ],
+    "contracts": [
+      "contracts/**"
+    ],
+    "e2e": [
+      "tests/e2e/**",
+      "tests/acceptance/**",
+      "tests/pending/**"
+    ],
+    "infra": [
+      "infra/**",
+      ".github/**",
+      "docker-compose.yml"
+    ],
+    "design": [
+      "design/**",
+      "web/src/styles/**"
+    ],
+    "research": [
+      "docs/research/**"
+    ]
+  },
+  "scaffold": [
+    "npm create vite@latest web -- --template react-ts",
+    "mkdir api && npm --prefix api init -y && npm --prefix api i fastify zod && npm --prefix api i -D typescript tsx vitest @types/node",
+    "npm init playwright@latest -- --quiet tests/e2e"
+  ],
+  "check": [
+    {
+      "name": "web-lint",
+      "run": "npm --prefix web run lint --if-present",
+      "when_exists": "web/package.json"
+    },
+    {
+      "name": "web-types",
+      "run": "npm --prefix web exec -- tsc -b web --noEmit",
+      "when_exists": "web/tsconfig.json"
+    },
+    {
+      "name": "web-test",
+      "run": "npm --prefix web run test --if-present",
+      "when_exists": "web/package.json"
+    },
+    {
+      "name": "api-types",
+      "run": "npm --prefix api exec -- tsc -b api --noEmit",
+      "when_exists": "api/tsconfig.json"
+    },
+    {
+      "name": "api-test",
+      "run": "npm --prefix api run test --if-present",
+      "when_exists": "api/package.json"
+    },
+    {
+      "name": "acceptance",
+      "run": "node --test \"tests/acceptance/**/*.test.*js\"",
+      "tests_dir": "tests/acceptance",
+      "tests_pattern": "\\.test\\.[cm]?js$",
+      "timeout_s": 900
+    }
+  ]
+}

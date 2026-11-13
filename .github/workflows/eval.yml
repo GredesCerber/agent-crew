@@ -1,0 +1,80 @@
+# crew eval for the tool itself (not to be confused with templates/product/.github/workflows, which is the template for a product repo).
+#
+# 1. On PRs that change what affects agent behavior (the product AGENTS.md, skills, roles, eval tasks)
+#    we run `crew eval --dry-run`: tasks are valid, fixtures are in place. No agents are started, no keys needed.
+# 2. A real run is manual only (Actions -> eval -> Run workflow): agents cost money and need keys.
+#    Repository secrets required (Settings -> Secrets and variables -> Actions):
+#      ANTHROPIC_API_KEY — for Claude Code (claude -p)
+#      OPENAI_API_KEY    — for Codex CLI (codex exec)
+#    Without a key the agent fails, its runs get agent_failed and the report is a warning; the other agents still run.
+#    The report (.crew/evals/*.json) is stored as a run artifact.
+name: eval
+
+on:
+  pull_request:
+    paths:
+      - templates/product/AGENTS.md
+      - skills/**
+      - roles/**
+      - evals/**
+      - src/commands/eval.js
+      - .github/workflows/eval.yml
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: 'Agents, comma-separated, model after a colon: claude,codex or claude:opus,codex:gpt-5'
+        default: claude,codex
+      runs:
+        description: Runs per task and agent
+        default: '3'
+      task:
+        description: Only these tasks (comma-separated); empty means all
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: crew eval --dry-run
+        run: node bin/crew.js eval --dry-run --runs 3
+
+  run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: git config --global user.email ci@example.com && git config --global user.name ci
+      # Better to pin agent versions, otherwise comparisons across days also measure CLI updates.
+      - name: Install agents
+        run: npm install -g @anthropic-ai/claude-code @openai/codex
+      - name: crew eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # user input goes through env only; never interpolate ${{ }} directly into the shell
+          AGENTS: ${{ inputs.agents }}
+          RUNS: ${{ inputs.runs }}
+          TASK: ${{ inputs.task }}
+        run: |
+          set -o pipefail
+          args=(eval --agents "$AGENTS" --runs "$RUNS")
+          if [ -n "$TASK" ]; then args+=(--task "$TASK"); fi
+          node bin/crew.js "${args[@]}" --json | tee eval-summary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: |
+            .crew/evals/
+            eval-summary.json
+          if-no-files-found: warn

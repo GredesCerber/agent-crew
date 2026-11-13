@@ -1,0 +1,74 @@
+{
+  "about": "React (Vite + TypeScript) + FastAPI (Python, uv). Frontend in web/, backend in api/, OpenAPI contract in contracts/.",
+  "areas": {
+    "web": [
+      "web/**"
+    ],
+    "api": [
+      "api/**"
+    ],
+    "contracts": [
+      "contracts/**"
+    ],
+    "e2e": [
+      "tests/e2e/**",
+      "tests/acceptance/**",
+      "tests/pending/**"
+    ],
+    "infra": [
+      "infra/**",
+      ".github/**",
+      "docker-compose.yml"
+    ],
+    "design": [
+      "design/**",
+      "web/src/styles/**"
+    ],
+    "research": [
+      "docs/research/**"
+    ]
+  },
+  "scaffold": [
+    "npm create vite@latest web -- --template react-ts",
+    "uv init --app api && uv add --directory api fastapi uvicorn pydantic && uv add --directory api --dev pytest ruff httpx",
+    "npm init playwright@latest -- --quiet tests/e2e"
+  ],
+  "check": [
+    {
+      "name": "web-lint",
+      "run": "npm --prefix web run lint --if-present",
+      "when_exists": "web/package.json"
+    },
+    {
+      "name": "web-types",
+      "run": "npm --prefix web exec -- tsc -b web --noEmit",
+      "when_exists": "web/tsconfig.json"
+    },
+    {
+      "name": "web-test",
+      "run": "npm --prefix web run test --if-present",
+      "when_exists": "web/package.json"
+    },
+    {
+      "name": "api-lint",
+      "run": "uv run --directory api ruff check .",
+      "when_exists": "api/pyproject.toml"
+    },
+    {
+      "name": "api-test",
+      "run": "uv run --directory api pytest -q",
+      "when_exists": "api/pyproject.toml",
+      "ok_exit_codes": [
+        0,
+        5
+      ]
+    },
+    {
+      "name": "acceptance",
+      "run": "uv run --directory api pytest -q ../tests/acceptance",
+      "tests_dir": "tests/acceptance",
+      "tests_pattern": "(^test_.*\\.py$)|(_test\\.py$)",
+      "timeout_s": 900
+    }
+  ]
+}

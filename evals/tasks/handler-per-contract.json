@@ -1,0 +1,15 @@
+{
+  "name": "handler-per-contract",
+  "description": "Implement the GET /health handler strictly per the contract",
+  "repo": "../fixtures/mini-app",
+  "files": ["src/handlers.js", "contracts/health.json"],
+  "prompt": "Implement the route from the contract contracts/health.json in src/handlers.js (add it to routes). Do not change the contract. Read the version from package.json, do not hardcode it. Add a test in test/handlers.test.js. Verify with: npm test.",
+  "judge": [
+    { "type": "command", "command": "node --test .crew-eval/handler-per-contract.judge.mjs" },
+    { "type": "command", "command": "node --test" },
+    { "type": "command", "command": "git diff --exit-code crew-eval-base -- contracts/" },
+    { "type": "grep", "pattern": "['\"]1\\.2\\.0['\"]", "files": ["src/handlers.js"], "absent": true }
+  ],
+  "judge_files": ["judges/handler-per-contract.judge.mjs"],
+  "timeout_s": 600
+}

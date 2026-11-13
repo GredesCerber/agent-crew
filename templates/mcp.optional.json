@@ -1,0 +1,23 @@
+{
+  "context7": {
+    "enabled": false,
+    "about": "Up-to-date library and API documentation right in the agent's context. Enable this first.",
+    "command": "npx",
+    "args": ["-y", "@upstash/context7-mcp"],
+    "env_from": []
+  },
+  "perplexity": {
+    "enabled": false,
+    "about": "Deep web search for kickoff: the idea, competitors, arguments for the pitch. Key: PERPLEXITY_API_KEY in the environment.",
+    "command": "npx",
+    "args": ["-y", "VERIFY-PACKAGE-NAME-BEFORE-ENABLING"],
+    "env_from": ["PERPLEXITY_API_KEY"]
+  },
+  "playwright": {
+    "enabled": false,
+    "about": "A browser for QA and E2E of the demo path.",
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp"],
+    "env_from": []
+  }
+}

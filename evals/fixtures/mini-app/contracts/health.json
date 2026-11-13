@@ -1,0 +1,11 @@
+{
+  "route": "GET /health",
+  "description": "Liveness check of the service for the load balancer",
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "ok",
+      "version": "string: the version field from package.json"
+    }
+  }
+}

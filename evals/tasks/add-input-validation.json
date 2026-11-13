@@ -1,0 +1,15 @@
+{
+  "name": "add-input-validation",
+  "description": "Add input validation to addItem",
+  "repo": "../fixtures/mini-app",
+  "files": ["src/cart.js", "test/cart.test.js"],
+  "prompt": "In src/cart.js the function addItem(cart, item) accepts anything. Add validation: sku is a non-empty string, qty is an integer greater than 0, price is a finite number not less than 0. On a violation throw a TypeError and name the field (sku, qty or price) in the message. Valid items must still be added as before. Add tests for the errors in test/cart.test.js. Verify with: npm test.",
+  "judge": [
+    { "type": "command", "command": "node --test .crew-eval/add-input-validation.judge.mjs" },
+    { "type": "command", "command": "node --test" },
+    { "type": "grep", "pattern": "TypeError", "files": ["src/cart.js"] },
+    { "type": "grep", "pattern": "throws|rejects", "files": ["test/cart.test.js"] }
+  ],
+  "judge_files": ["judges/add-input-validation.judge.mjs"],
+  "timeout_s": 600
+}

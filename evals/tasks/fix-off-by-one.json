@@ -1,0 +1,14 @@
+{
+  "name": "fix-off-by-one",
+  "description": "Fix an off-by-one error in pagination",
+  "repo": "../fixtures/mini-app",
+  "files": ["src/pager.js"],
+  "prompt": "In src/pager.js the function paginate(items, page, size) returns the wrong page: pages are numbered from 1, so page=1 must return the first `size` items, but it currently returns the second chunk. Fix the bug without changing the signature or the response shape { items, page, pages }. Add a test for the first and the last (partial) page in test/pager.test.js. Verify with: npm test.",
+  "judge": [
+    { "type": "command", "command": "node --test .crew-eval/fix-off-by-one.judge.mjs" },
+    { "type": "command", "command": "node --test" },
+    { "type": "command", "command": "git diff --quiet crew-eval-base -- test/pager.test.js", "expect_exit": 1 }
+  ],
+  "judge_files": ["judges/fix-off-by-one.judge.mjs"],
+  "timeout_s": 600
+}
