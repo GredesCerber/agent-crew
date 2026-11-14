@@ -509,7 +509,7 @@ export function taskWorktrees(porcelain = '') {
   for (const block of porcelain.split(/\r?\n\r?\n/)) {
     const path = /^worktree (.+)$/m.exec(block)?.[1]?.trim();
     const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1]?.trim();
-    const id = Number(/^crew\/(\d+)-/.exec(branch ?? '')?.[1]);
+    const id = Number(/^(?:crew|hk)\/(\d+)-/.exec(branch ?? '')?.[1]);
     if (path && branch && id) out.push({ path, branch, id });
   }
   return out;

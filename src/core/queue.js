@@ -63,7 +63,7 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
       continue;
     }
     const sha7 = String(pr.headRefOid ?? '').slice(0, 7);
-    const reviewedHead = !!sha7 && (pr.comments ?? []).some((c) => new RegExp(`<!-- crew:review [^>]*agent=${esc(me)} [^>]*sha=${esc(sha7)}`).test(c.body ?? ''));
+    const reviewedHead = !!sha7 && (pr.comments ?? []).some((c) => new RegExp(`<!-- (?:crew|hk):review [^>]*agent=${esc(me)} [^>]*sha=${esc(sha7)}`).test(c.body ?? ''));
     const counts = policy.require === 'other-agent' || rs.fallback || !author || vendorOf(author) !== vendorOf(me);
     const authorIsReviewer = reviewers.some((r) => lc(r) === lc(pr.author?.login));
     const turn = isReviewer || !reviewers.length || authorIsReviewer || age >= policy.fallback_minutes;

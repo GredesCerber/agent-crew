@@ -72,7 +72,7 @@ export function parseMarkers(comments = [], { trustedOnly = true } = {}) {
   const out = [];
   for (const c of comments) {
     if (trustedOnly && !isTrustedComment(c)) continue;
-    for (const m of (c.body ?? '').matchAll(/<!-- crew:(\w+)((?: \w+=\S+)*) -->/g)) {
+    for (const m of (c.body ?? '').matchAll(/<!-- (?:crew|hk):(\w+)((?: \w+=\S+)*) -->/g)) {
       const fields = Object.fromEntries([...m[2].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]));
       out.push({ kind: m[1], ...fields, createdAt: c.createdAt, by: c.author?.login ?? null });
     }

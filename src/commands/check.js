@@ -58,7 +58,7 @@ export default {
     const logPath = join(dir, `check-${stamp}.txt`);
     // #13 (H5): we extend the lease BEFORE the steps too — a long check (up to timeout_s per step) could otherwise outlive the lease,
     // and sweep would return the task to the queue midway. After the steps — once more (at most once per 5 minutes).
-    const id = Number(/^crew\/(\d+)-/.exec(currentBranch(root))?.[1]) || null;
+    const id = Number(/^(?:crew|hk)\/(\d+)-/.exec(currentBranch(root))?.[1]) || null;
     const leaseCheck = deps.checkLease ?? checkLease;
     if (id) leaseCheck({ id, me: agentId() });
     const results = [];

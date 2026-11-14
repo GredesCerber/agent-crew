@@ -168,7 +168,7 @@ export function areaOwners(team) {
 export const teamReviewers = (team) => (team?.members ?? []).filter((m) => m.review).map((m) => m.login);
 
 /** PRD approval header: <!-- crew:prd status: approved by: <login|auto-timeout> at: ISO -->. */
-export const PRD_HEADER_RE = /^\s*<!--\s*crew:prd\s+status:\s*([\w-]+)(?:\s+by:\s*(\S+))?(?:\s+at:\s*(\S+))?\s*-->\s*$/m;
+export const PRD_HEADER_RE = /^\s*<!--\s*(?:crew|hk):prd\s+status:\s*([\w-]+)(?:\s+by:\s*(\S+))?(?:\s+at:\s*(\S+))?\s*-->\s*$/m;
 
 export function prdApproval(text = '') {
   const m = PRD_HEADER_RE.exec(text);

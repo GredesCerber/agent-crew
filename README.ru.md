@@ -79,7 +79,7 @@ crew up --join owner/name
 npm install -g @gredescerber/agent-crew
 ```
 
-Команда называется `crew`. Напрямую из GitHub: `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.5.0` (npm 12+ без флага запрещает установку из git).
+Команда называется `crew`. Напрямую из GitHub: `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.6.0` (npm 12+ без флага запрещает установку из git).
 
 Или клонировать и подключить (зависимостей нет; `npm link` только кладёт `crew` в PATH):
 
@@ -239,6 +239,8 @@ bob: api
 | `crew task status <id> blocked --note "..."` | сменить статус и оставить хендофф |
 | `crew task release <id>` / `heartbeat <id>` | вернуть задачу / продлить аренду (только свою; чужую человек с `--force`) |
 | `crew shots before\|after --url <страница> [--name <экран>]` | скриншот «до» и «после» (Playwright) для задачи, меняющей интерфейс; `crew pr open` показывает их таблицей Before / After |
+| `crew board [--port 4747]` | локальная доска задач в браузере: очередь по статусам, ждущие PR; вручную назначить исполнителя, статус и приоритет (без токенов агентов) |
+| `crew upgrade [--apply]` | обновить существующий проект до установленной версии (правила, навыки, workflows, конфиги агентов; переводит проекты с hk); `--apply` открывает PR |
 | `crew task cleanup [--dry_run]` | убрать worktree закрытых задач (только без незакоммиченных правок и с работой, уже сохранённой в main или на GitHub) |
 | `crew task lint` | проверить `docs/prd.md` без сети: все ошибки сразу (строка, id, правило) |
 | `crew task sweep` / `crew task promote` | вернуть просроченные аренды в очередь / перевести `waiting` в `ready`, когда зависимости закрыты (запускает CI) |

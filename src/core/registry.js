@@ -29,6 +29,7 @@ import guard from '../commands/guard.js';
 import up from '../commands/up.js';
 import shots from '../commands/shots.js';
 import board from '../commands/board.js';
+import upgrade from '../commands/upgrade.js';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { loadConfig } from './config.js';
@@ -44,7 +45,7 @@ export const CWD_ARG = {
 /** Command arguments including the shared ones (cwd). */
 export const argsOf = (cmd) => [...(cmd.args ?? []), ...(cmd.usesCwd && !(cmd.args ?? []).some((a) => a.name === 'cwd') ? [CWD_ARG] : [])];
 
-export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board];
+export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board, upgrade];
 
 /** For MCP: only commands safe for agents (no init/labels/adapters; a human does those). */
 export const agentCommands = commands.filter((c) => c.agent !== false);

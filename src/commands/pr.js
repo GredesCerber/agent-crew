@@ -32,7 +32,7 @@ export function mainProtected(root, sh = (args) => gh(args, { cwd: root, allowFa
 }
 
 export function issueFromBranch(branch) {
-  return Number(/^crew\/(\d+)-/.exec(branch)?.[1]) || null;
+  return Number(/^(?:crew|hk)\/(\d+)-/.exec(branch)?.[1]) || null;
 }
 
 /**

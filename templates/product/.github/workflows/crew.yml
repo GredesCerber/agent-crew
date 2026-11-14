@@ -1,6 +1,6 @@
 # Code checks: linter, types, tests from crew.config.json. They work the same for Claude, Codex, and humans.
 # PR rules (protected files, acceptance tests, agent review) live in crew-guard.yml, which runs from main.
-# Requires the variable CREW_HARNESS (Settings → Variables), e.g. @gredescerber/agent-crew@0.5.0
+# Requires the variable CREW_HARNESS (Settings → Variables), e.g. @gredescerber/agent-crew@0.6.0
 # (installed from the public npm registry at a pinned version; no token).
 # Main's protection, the variable, and the labels are set up by `crew github setup --apply`.
 name: crew

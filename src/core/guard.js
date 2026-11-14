@@ -35,7 +35,7 @@ export function isPureMove(f = {}) {
 
 /** Markers of a task from the issue body: { taskId, testsFor, testsIssue }. */
 export function taskMarkers(issueBody = '') {
-  const pick = (kind, key) => new RegExp(`<!-- crew:${kind}\\b[^>]*?\\b${key}=(\\S+?)[\\s>]`).exec(issueBody ?? '')?.[1] ?? null;
+  const pick = (kind, key) => new RegExp(`<!-- (?:crew|hk):${kind}\\b[^>]*?\\b${key}=(\\S+?)[\\s>]`).exec(issueBody ?? '')?.[1] ?? null;
   return { taskId: pick('task', 'id'), testsFor: pick('tests-for', 'task'), testsIssue: Number(pick('tests', 'issue')) || null };
 }
 export const ACCEPTANCE_SECTION = 'Changes acceptance';
@@ -132,7 +132,7 @@ export function reviewState(comments = [], { headSha, author, policy, prCreatedA
   for (const c of comments) {
     // in a public repo anyone can comment: review markers only count from repo members
     if (!isTrustedComment(c)) continue;
-    for (const m of String(c.body ?? '').matchAll(/<!-- crew:review((?: \w+=\S+)*) -->/g)) {
+    for (const m of String(c.body ?? '').matchAll(/<!-- (?:crew|hk):review((?: \w+=\S+)*) -->/g)) {
       const f = Object.fromEntries([...m[1].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]));
       if (!f.agent || !f.verdict || !f.sha) continue;
       latest.set(f.agent, { agent: f.agent, verdict: f.verdict, sha: f.sha, at: c.createdAt });
