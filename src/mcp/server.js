@@ -1,7 +1,7 @@
 // Minimal MCP server (stdio, JSON-RPC 2.0, one message per line).
 // Exposes crew commands as tools: crew_task_next, crew_task_claim, crew_check, ...
 // Connects to any MCP client: Claude Code, Codex, Cursor, etc. No dependencies.
-import { claimSlot } from '../core/session.js';
+import { claimSlot, REFRESH_MS } from '../core/session.js';
 import { agentId } from '../core/config.js';
 import { createInterface } from 'node:readline';
 import { agentCommands, toolName, inputSchema, validate } from '../core/registry.js';
@@ -58,6 +58,7 @@ export function startServer() {
     const slot = claimSlot(agentId());
     if (slot) {
       process.env.CREW_AGENT_ID = slot.id;
+      setInterval(slot.refresh, REFRESH_MS).unref(); // a live session keeps its lock fresh; a crashed one goes stale
       for (const ev of ['exit', 'SIGINT', 'SIGTERM']) process.once(ev, () => { slot.release(); if (ev !== 'exit') process.exit(0); });
     }
   }

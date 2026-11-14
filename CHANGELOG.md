@@ -5,6 +5,27 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+Fixes from an independent review of 0.6.0–0.7.0.
+
+### Security
+- One identity per session: terminal `crew` calls resolve the session's own name (the worktree pin, or the only live session on the machine); with several live sessions and no pin, commands that act as an agent refuse with `ambiguous_agent` instead of guessing.
+- Sibling sessions on one machine (`claude@pc`, `claude@pc-2`) count as the same agent: a session cannot review its own PR, and `crew pr review` also checks the commits' `Agent:` trailers.
+- Waiving `not_crew_pr` no longer lets the author approve: the commits' agents (and, with no known agent, the GitHub account that opened the PR) cannot review it. Review markers from bots never count.
+- The "Changes acceptance" section only relaxes the acceptance rule when the issue carries a team label (outsiders cannot label issues).
+- `crew merge-ready` merges with `--match-head-commit`, so a push after the review cannot slip in.
+- Session locks live in a per-user folder, are refreshed while the session runs, go stale after 30 minutes without a refresh, and are taken over atomically.
+- Questions: the answer reaches the asker as text from a member's `crew:answer` comment (never "read all comments"); question and answer text cannot forge markers; `crew ask` rejects unknown areas; an agent cannot answer its own question; `crew inbox --ack` only touches questions.
+- `crew guard` fails PRs opened with a crew older than the repo's `CREW_HARNESS` (`outdated_crew`), using a version stamp `crew pr open` writes; the client-side gate alone missed exactly the old versions.
+
+### Fixed
+- `crew task next`: questions and answers come before `resume`, so an answer from `crew ask` reaches an agent mid-task; a deleted issue behind a worktree no longer breaks it.
+- An approved PR with a red `crew-guard` is a `fix` for its author (with the guard's reason); an approved PR waiting for checks shows as such in the digest and on the board instead of vanishing.
+- The sweep job promotes tasks right after `merge-ready` (merges made by CI trigger no workflows).
+- `requires:` finds `npm`/`pnpm`/`yarn` on Windows and treats tools that reject `--version` (go, java) as installed.
+- `crew upgrade --apply` plans against the default branch, never re-adds areas a project removed, and returns to your branch if anything fails.
+- Board: moving a task back to `ready` also ends an old claim; a failed collaborators call is not cached. Digest: stale leases use the owner's markers (like the sweep); members with an open PR are not idle.
+- Release workflow: the tag must be on `main`, the CHANGELOG section is checked before staging, and npm is pinned.
+
 ## [0.7.0] — 2026-11-14
 
 ### Added

@@ -84,7 +84,7 @@ jobs:
       # A same-vendor review is counted via fallback_minutes, but the status will not recompute without an event.
       # Every 15 minutes we recompute crew-guard for open PRs (code and config come from main, PR code is not executed).
       - name: Recompute crew-guard for open PRs
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env: { GH_TOKEN: "${{ github.token }}", CREW_HARNESS: "${{ vars.CREW_HARNESS }}" }
         run: |
           for n in $(gh pr list --state open --json number --jq '.[].number'); do
             crew guard --pr "$n" --report --json > /dev/null || true
@@ -94,6 +94,12 @@ jobs:
       - name: Merge ready PRs
         env: { GH_TOKEN: "${{ github.token }}" }
         run: crew merge-ready --json
+
+      # Merges made with GITHUB_TOKEN trigger no workflows, so the "issue closed → promote" job never runs for them.
+      # Promote here: tasks waiting on what was just merged become ready now, not on the next tick.
+      - name: Promote tasks unblocked by these merges
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: crew task promote --json
 
       # Team status in one pinned issue (no LLM): who waits for a human, stale leases, PRs, idle members.
       - name: Update crew digest

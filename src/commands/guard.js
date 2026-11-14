@@ -6,7 +6,7 @@
 import { ok, warn, fail } from '../core/output.js';
 import { gh, ghJson, git } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
-import { evaluateGuard, linkedIssue, taskMarkers, GUARD_CONTEXT, PENDING_DIR } from '../core/guard.js';
+import { evaluateGuard, pinnedVersion, linkedIssue, taskMarkers, GUARD_CONTEXT, PENDING_DIR } from '../core/guard.js';
 
 /** PR files from the GitHub API (with status and previous_filename; gh pr view does not return them). */
 function prFiles(pr, cwd) {
@@ -48,12 +48,12 @@ export default {
   ],
   run({ pr, report = false }) {
     const { config, root } = loadConfig();
-    const view = ghJson(['pr', 'view', String(pr), '--json', 'number,body,headRefOid,baseRefOid,labels,createdAt,comments,state'], { cwd: root });
+    const view = ghJson(['pr', 'view', String(pr), '--json', 'number,body,headRefOid,baseRefOid,labels,createdAt,comments,state,author'], { cwd: root });
     if (!view) return fail('pr_not_found', `PR #${pr} not found`, { retry: 'gh pr list', stop_when: 'PR is closed or belongs to another repo' });
     const files = prFiles(pr, root);
     const commits = prCommits(pr, root);
     const issueNo = linkedIssue(view.body);
-    const issue = issueNo ? ghJson(['issue', 'view', String(issueNo), '--json', 'body'], { cwd: root, allowFail: true }) : null;
+    const issue = issueNo ? ghJson(['issue', 'view', String(issueNo), '--json', 'body,labels'], { cwd: root, allowFail: true }) : null;
     const risk = (view.labels ?? []).map((l) => l.name).find((n) => n.startsWith('risk:'))?.slice(5) ?? 'med';
     const tm = taskMarkers(issue?.body ?? '');
     const pendingFiles = tm.testsIssue ? pendingInBase(view.baseRefOid, tm.taskId, root) : [];
@@ -64,6 +64,10 @@ export default {
       commits,
       body: view.body,
       issueBody: issue?.body ?? '',
+      // only members can label issues: a labelled issue is a team task, not an outsider's text
+      issueTrusted: (issue?.labels ?? []).some((l) => /^(status|area):/.test(l.name)),
+      prLogin: view.author?.login ?? null,
+      requiredVersion: pinnedVersion(process.env.CREW_HARNESS ?? ''),
       comments: view.comments ?? [],
       headSha: view.headRefOid,
       risk,

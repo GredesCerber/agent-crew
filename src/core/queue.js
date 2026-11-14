@@ -3,6 +3,7 @@
 // and the whole queue waits behind the skeleton.
 import { authorAgent, linkedIssue, reviewPolicy, reviewState, vendorOf } from './guard.js';
 import { labelValue, tierAllows } from './issues.js';
+import { sameAgent } from './session.js';
 
 const riskOfPr = (pr) => (pr.labels ?? []).map((l) => l.name ?? l).find((n) => n.startsWith('risk:'))?.slice(5) ?? 'med';
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -13,10 +14,12 @@ const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export function prChecks(pr) {
   const seen = { check: [], guard: [] };
+  let guardText = '';
   for (const c of pr.statusCheckRollup ?? []) {
     const name = c.name ?? c.context;
     const key = name === 'check' ? 'check' : name === 'crew-guard' ? 'guard' : null;
     if (key) seen[key].push(String(c.conclusion || c.state || '').toUpperCase());
+    if (key === 'guard' && c.description) guardText = c.description;
   }
   const sum = (xs) => {
     if (!xs.length) return null;
@@ -24,7 +27,7 @@ export function prChecks(pr) {
     if (xs.some((s) => ['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(s))) return 'failure';
     return 'pending';
   };
-  return { check: sum(seen.check), guard: sum(seen.guard) };
+  return { check: sum(seen.check), guard: sum(seen.guard), ...(guardText ? { guardText } : {}) };
 }
 
 /**
@@ -43,7 +46,7 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     // PR from a fork (public repo): its text and diff are foreign, so we do not hand it to agents for review (prompt injection).
     if (pr.isCrossRepository) continue;
     const author = authorAgent(pr.body);
-    const mine = !!author && author === me;
+    const mine = !!author && sameAgent(author, me);
     const risk = riskOfPr(pr);
     const need = risk === 'high' ? policy.approvals_high : policy.approvals;
     const rs = reviewState(pr.comments ?? [], { headSha: pr.headRefOid, author, policy, prCreatedAt: pr.createdAt, now });
@@ -51,7 +54,9 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     const checks = prChecks(pr);
     const conflict = String(pr.mergeable ?? '').toUpperCase() === 'CONFLICTING';
     // PR is waiting for its author: reviewer requests changes, red check or conflict with main. The author fixes it before new tasks.
-    const fixWhy = rs.changes.length ? `reviewer requests changes (${rs.changes.join(', ')})` : conflict ? 'conflict with main' : checks.check === 'failure' ? 'red check' : null;
+    // A red crew-guard means a rule is broken (protected files, acceptance tests, paperwork): only the author can fix it.
+    const fixWhy = rs.changes.length ? `reviewer requests changes (${rs.changes.join(', ')})` : conflict ? 'conflict with main'
+      : checks.check === 'failure' ? 'red check' : checks.guard === 'failure' ? `crew-guard: ${checks.guardText || 'a rule is broken'}` : null;
     if (fixWhy) {
       out.push({ kind: 'fix', number: pr.number, title: pr.title, issue: linkedIssue(pr.body), risk, age, mine, reason: fixWhy, reviewable: false });
       continue;
@@ -59,7 +64,9 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     if (rs.approvals.length >= need) {
       // risk:high is merged manually; low/med if GitHub auto-merge did not turn on (no autoMergeRequest).
       const manual = risk === 'high' || ('autoMergeRequest' in pr && !pr.autoMergeRequest);
-      if (manual && checks.check === 'success' && checks.guard === 'success') out.push({ kind: 'merge', number: pr.number, title: pr.title, risk, age, reviewable: false });
+      if (manual && checks.check === 'success' && checks.guard === 'success') out.push({ kind: 'merge', number: pr.number, title: pr.title, risk, age, sha: pr.headRefOid, reviewable: false });
+      // approved, checks still running (or auto-merge pending): nobody has to act, but humans should see it
+      else if (checks.check !== 'success' || checks.guard !== 'success') out.push({ kind: 'checks', number: pr.number, title: pr.title, risk, age, reviewable: false });
       continue;
     }
     const sha7 = String(pr.headRefOid ?? '').slice(0, 7);
@@ -70,7 +77,7 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     const why_not = mine ? 'own PR' : reviewedHead ? 'already reviewed this commit' : !counts ? 'needs a reviewer from another vendor' : !turn ? `the team reviewer goes first (${reviewers.join(', ')})` : null;
     out.push({ kind: 'review', number: pr.number, title: pr.title, risk, age, need, have: rs.approvals.length, reviewable: !why_not, why_not });
   }
-  const rank = (x) => (x.kind === 'fix' ? 0 : x.kind === 'merge' ? 10 : 20) + (x.risk === 'high' ? 0 : 1);
+  const rank = (x) => ({ fix: 0, merge: 10, review: 20, checks: 30 }[x.kind] ?? 40) + (x.risk === 'high' ? 0 : 1);
   return out.sort((a, b) => rank(a) - rank(b) || a.number - b.number);
 }
 

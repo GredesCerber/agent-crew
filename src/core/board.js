@@ -1,6 +1,6 @@
 // Task board for humans (crew board): see the queue and steer it by hand without spending agent tokens.
 // Pure functions: the model shown on the page, and the gh arguments for each action the page can request.
-import { labelValue } from './issues.js';
+import { labelValue, marker } from './issues.js';
 import { prQueue } from './queue.js';
 import { LOGIN_RE } from './prd.js';
 import { digestModel } from './digest.js';
@@ -69,6 +69,9 @@ export function actionArgs({ op, value }, current, { members = [] } = {}) {
     if (from.length === 1 && from[0] === to) return { noop: true };
     const args = ['issue', 'edit', n, '--add-label', `status:${to}`];
     for (const f of from) if (f !== to) args.push('--remove-label', `status:${f}`);
+    // Back to the queue: also end any old claim (e.g. an agent that set blocked while holding it), as crew task release
+    // does; otherwise agents get claim_conflict until that lease ages out.
+    if (to === 'ready') return { args, comment: `${marker('release', { agent: 'crew-board', at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board.` };
     return { args };
   }
   if (op === 'priority') {
@@ -134,7 +137,7 @@ s.append(e('div',{class:'card prio-'+t.priority},e('a',{href:'https://github.com
 e('div',{class:'meta'},[t.area&&('area:'+t.area),t.risk&&('risk:'+t.risk),t.tier&&('tier:'+t.tier),t.assignees.length?('@'+t.assignees.join(' @')):'no owner',t.idle_min+' min'].filter(Boolean).join(' · ')),ctl))}
 cols.append(s)}
 const ul=document.getElementById('prlist');ul.replaceChildren();
-for(const p of m.prs)ul.append(e('li',{},e('a',{href:'https://github.com/'+REPO+'/pull/'+p.number,target:'_blank',rel:'noopener'},'#'+p.number+' '+p.title),' — '+(p.kind==='review'?('waiting for review '+p.age_min+' min ('+p.have+'/'+p.need+')'):p.kind==='merge'?'ready to merge':('waiting for the author: '+p.reason))));
+for(const p of m.prs)ul.append(e('li',{},e('a',{href:'https://github.com/'+REPO+'/pull/'+p.number,target:'_blank',rel:'noopener'},'#'+p.number+' '+p.title),' — '+(p.kind==='review'?('waiting for review '+p.age_min+' min ('+p.have+'/'+p.need+')'):p.kind==='merge'?'ready to merge':p.kind==='checks'?'approved, waiting for checks':('waiting for the author: '+p.reason))));
 if(!m.prs.length)ul.append(e('li',{class:'muted'},'none'))}
 load();setInterval(load,30000);
 </script></body></html>`;

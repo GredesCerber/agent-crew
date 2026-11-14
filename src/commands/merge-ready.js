@@ -21,7 +21,8 @@ export default {
     const failed = [];
     if (!dry_run) {
       for (const p of ready) {
-        const r = (deps.gh ?? gh)(['pr', 'merge', String(p.number), '--merge', '--delete-branch'], { cwd: root, allowFail: true });
+        // --match-head-commit: merge exactly the reviewed commit; a push since then makes GitHub refuse the merge.
+        const r = (deps.gh ?? gh)(['pr', 'merge', String(p.number), '--merge', '--delete-branch', ...(p.sha ? ['--match-head-commit', p.sha] : [])], { cwd: root, allowFail: true });
         (r.code === 0 ? merged : failed).push(r.code === 0 ? p.number : { pr: p.number, error: (r.stderr || r.stdout || '').split('\n')[0] });
       }
     }

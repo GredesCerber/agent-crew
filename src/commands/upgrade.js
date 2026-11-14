@@ -43,16 +43,14 @@ export function ownedFiles(harnessRoot = HARNESS_ROOT) {
   return out;
 }
 
-/** Config after upgrade: user values kept; missing top-level keys and missing areas added. */
+/**
+ * Config after upgrade: user values kept, only missing top-level keys added. Areas are never touched:
+ * a project that removed an area (or narrowed its globs) meant it, and areas replace the defaults wholesale.
+ */
 export function mergeConfig(cfg = {}, defaults = DEFAULT_CONFIG) {
   const out = { ...cfg };
   const added = [];
   for (const [k, v] of Object.entries(defaults)) if (!(k in out)) { out[k] = v; added.push(k); }
-  if (defaults.areas && out.areas) {
-    for (const [a, globs] of Object.entries(defaults.areas)) {
-      if (!(a in out.areas)) { out.areas = { ...out.areas, [a]: globs }; added.push(`areas.${a}`); }
-    }
-  }
   return { config: out, added };
 }
 
@@ -117,7 +115,7 @@ export default {
       read: (p) => readFileSync(join(root, p), 'utf8'),
       list: (p) => walk(join(root, p)).map((f) => `${p}/${f}`),
     };
-    const plan = planUpgrade(repo);
+    let plan = planUpgrade(repo);
     const branch = `crew/upgrade-${LOCAL_VERSION}`;
     const lines = summarize(plan.ops);
     if (!apply) {
@@ -126,14 +124,25 @@ export default {
         next_actions: plan.ops.length ? ['crew upgrade --apply (creates a branch and a PR; agent configs are regenerated too)'] : ['nothing to do'],
       });
     }
-    if (!plan.ops.length) return ok(`Already up to date with agent-crew ${LOCAL_VERSION}`);
     if (git(['status', '--porcelain'], { cwd: root }).stdout.trim()) {
       return fail('dirty_tree', 'Uncommitted changes in the project', { retry: 'commit or stash them, then crew upgrade --apply' });
     }
     git(['fetch', '--quiet', 'origin'], { cwd: root, allowFail: true });
     const base = (gh(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd: root, allowFail: true }).stdout || '').trim() || 'main';
+    const from = (git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, allowFail: true }).stdout || '').trim();
     const sw = git(['switch', '-c', branch, `origin/${base}`], { cwd: root, allowFail: true });
     if (sw.code !== 0) return fail('branch_exists', `Could not create ${branch}`, { cause_hint: (sw.stderr || sw.stdout).split('\n')[0], retry: `git branch -D ${branch} (if it is a leftover), then crew upgrade --apply` });
+    // The upgrade lands on the default branch, so plan against it, not against whatever was checked out.
+    // On failure: drop the half-applied upgrade branch (the tree was clean before) and return to where we were.
+    const back = () => {
+      git(['restore', '--staged', '--worktree', '.'], { cwd: root, allowFail: true });
+      git(['clean', '-fdq'], { cwd: root, allowFail: true });
+      if (from && from !== 'HEAD') git(['switch', from], { cwd: root, allowFail: true });
+      git(['branch', '-D', branch], { cwd: root, allowFail: true });
+    };
+    plan = planUpgrade(repo);
+    if (!plan.ops.length) { back(); return ok(`Already up to date with agent-crew ${LOCAL_VERSION}`); }
+    try {
     for (const o of plan.ops) {
       if (o.op === 'rename') git(['mv', o.from, o.path], { cwd: root });
       else if (o.op === 'delete') rmSync(join(root, o.path), { force: true });
@@ -151,6 +160,12 @@ export default {
     }
     git(['add', '-A'], { cwd: root });
     git(['commit', '-q', '-m', `chore: upgrade to agent-crew ${LOCAL_VERSION}`, '-m', 'Agent: crew-upgrade'], { cwd: root });
+    } catch (e) {
+      back();
+      return fail('upgrade_failed', `Upgrade stopped, nothing was committed; you are back on ${from || 'your branch'}`, {
+        cause_hint: e.message, retry: 'fix the cause, then crew upgrade --apply', stop_when: 'it fails the same way twice: report it with the output',
+      });
+    }
     const push = git(['push', '-u', 'origin', branch], { cwd: root, allowFail: true });
     if (push.code !== 0) return fail('push_failed', `Committed on ${branch}, push failed`, { cause_hint: (push.stderr || push.stdout).split('\n')[0], retry: `git push -u origin ${branch}` });
     const body = [

@@ -8,6 +8,7 @@ import { viewIssue, setStatus, labelValue } from '../core/issues.js';
 import { WAIVABLE, waiveMarker, authorAgent, reviewMarker, reviewPolicy, vendorOf } from '../core/guard.js';
 import { checkLease, leaseLostError } from '../core/lease.js';
 import { isFullRun } from './check.js';
+import { sameAgent } from '../core/session.js';
 import { safeText } from '../core/issues.js';
 import { REQUIRED_CHECKS } from './github.js';
 import { uiFiles, listShots, shotsSection } from '../core/shots.js';
@@ -79,12 +80,14 @@ export const prReview = {
     if (verdict === 'changes' && !note) {
       return fail('bad_input', 'changes requires --note with the specific fixes', { retry: `crew pr review ${pr} --verdict changes --note "1) ... 2) ..."` });
     }
-    const view = ghJson(['pr', 'view', String(pr), '--json', 'number,body,headRefOid,state,url'], { cwd: root });
+    const view = ghJson(['pr', 'view', String(pr), '--json', 'number,body,headRefOid,state,url,commits'], { cwd: root });
     if (!view || view.state !== 'OPEN') {
       return fail('pr_not_open', `PR #${pr} is not open`, { retry: 'gh pr list', stop_when: 'PR is already merged or closed' });
     }
     const author = authorAgent(view.body);
-    if (author && author === me) {
+    // A PR without an **Agent:** line (made outside crew, waived): its commits' Agent: trailers name who wrote it.
+    const writers = [author, ...(view.commits ?? []).map((c) => /^Agent:\s*(\S+)/m.exec(`${c.messageHeadline ?? ''}\n${c.messageBody ?? ''}`)?.[1])].filter(Boolean);
+    if (writers.some((w) => sameAgent(w, me))) {
       return fail('self_review', `You wrote PR #${pr} yourself (${me}) — a review of your own work does not count`, {
         retry: 'crew task next or review someone else PR',
         stop_when: 'there are no other PRs to review',
@@ -180,6 +183,7 @@ export const prOpen = {
       `Closes #${id}`,
       '',
       `**Agent:** \`${agent}\``,
+      `<!-- crew:pr version=${LOCAL_VERSION} -->`,
       '',
       '## What was done',
       '_(the agent fills this in: 2–5 bullets)_',

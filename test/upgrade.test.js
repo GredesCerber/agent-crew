@@ -40,8 +40,8 @@ test('legacy hk project: renames, deletes old workflows and hk-* skills, writes 
   assert.deepEqual(cfg.hosts, ['claude'], 'user values kept');
   assert.equal(cfg.custom, 1);
   assert.equal(cfg.lease_minutes, 45, 'missing keys added');
-  assert.deepEqual(cfg.areas.design, ['design/**'], 'missing areas added');
-  assert.deepEqual(plan.config_added, ['lease_minutes', 'areas.design']);
+  assert.deepEqual(cfg.areas, { web: ['web/**'] }, 'areas belong to the project: never added back');
+  assert.deepEqual(plan.config_added, ['lease_minutes']);
   assert.equal(writes['.gitignore'].content, '# crew: local files\n.crew/\n.mcp.json\n');
 });
 
@@ -146,7 +146,7 @@ test('merge-ready merges only ready PRs (review + green check and crew-guard, no
     gh: (args) => (calls.push(args), { code: 0, stdout: '', stderr: '' }),
   });
   assert.deepEqual(r.artifacts.merged, [1]);
-  assert.deepEqual(calls, [['pr', 'merge', '1', '--merge', '--delete-branch']]);
+  assert.deepEqual(calls, [['pr', 'merge', '1', '--merge', '--delete-branch', '--match-head-commit', SHA]], 'merges exactly the reviewed commit');
 });
 
 test('crew-guard: a human waiver lifts paperwork rules for this commit only; protected files and review stay', async () => {

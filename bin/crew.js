@@ -4,10 +4,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { commands, findCommand, parseArgs, validate } from '../src/core/registry.js';
 import { CrewError, fail, render } from '../src/core/output.js';
-import { HARNESS_ROOT } from '../src/core/config.js';
+import { HARNESS_ROOT, identityProblem } from '../src/core/config.js';
 import { recordCommand } from '../src/core/metrics.js';
 
 const argv = process.argv.slice(2);
+// Commands that act under the agent's name: they need to know exactly which session is calling.
+const ACTS_AS_AGENT = new Set(['task next', 'task claim', 'task status', 'task release', 'task heartbeat', 'commit', 'pr open', 'pr review', 'ask', 'answer', 'inbox']);
 const json = argv.includes('--json') || process.env.CREW_JSON === '1' || !process.stdout.isTTY;
 const words = argv.filter((a) => a !== '--json');
 
@@ -44,8 +46,15 @@ async function main() {
   const err = validate(cmd, opts);
   const started = Date.now();
   let result;
+  const ambiguous = !err && ACTS_AS_AGENT.has(cmd.name) ? identityProblem() : null;
   if (err) result = fail('bad_input', err, { retry: 'crew help' });
-  else {
+  else if (ambiguous) {
+    result = fail('ambiguous_agent', `Several agent sessions are running on this machine (${ambiguous.join(', ')}); this terminal call cannot tell which one it is`, {
+      cause_hint: 'each session has its own name from its crew MCP server; acting under a guessed name could review or claim as another session',
+      retry: `use the crew MCP tools (crew_*) of your session, or run inside your task worktree, or set CREW_AGENT_ID to your session's name`,
+      stop_when: 'you do not know your session name: ask the human',
+    });
+  } else {
     try {
       result = await cmd.run(opts, {});
     } catch (e) {

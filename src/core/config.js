@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { pinnedId } from './session.js';
+import { pinnedId, cliIdentity } from './session.js';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,6 +78,21 @@ export function agentId(env = process.env) {
     const pinned = pinnedId();
     if (pinned) return pinned;
   }
-  const base = env.CREW_AGENT || 'human';
-  return base.includes('@') ? base : `${base}@${machineName()}`;
+  const raw = env.CREW_AGENT || 'human';
+  const base = raw.includes('@') ? raw : `${raw}@${machineName()}`;
+  // A CLI call outside a pinned worktree: the only live session on this machine is us; with several, see identityProblem.
+  if (env === process.env) return cliIdentity(base).id ?? base;
+  return base;
+}
+
+/**
+ * Several live sessions of this vendor on this machine and nothing says which one this CLI call belongs to.
+ * -> null, or the list of live ids. Commands that act as an agent (claim, commit, PR, review) refuse then.
+ */
+export function identityProblem(env = process.env) {
+  if (env.CREW_AGENT_ID || pinnedId()) return null;
+  const raw = env.CREW_AGENT || 'human';
+  if (raw === 'human') return null;
+  const base = raw.includes('@') ? raw : `${raw}@${machineName()}`;
+  return cliIdentity(base).ambiguous ?? null;
 }

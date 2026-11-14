@@ -13,6 +13,9 @@
 // The goal is to catch laziness and mistakes (weakened a test, "fixed" CI, approved itself).
 
 import { isTrustedComment } from './issues.js';
+import { sameAgent } from './session.js';
+
+const isBot = (c) => /\[bot\]$|^github-actions$/.test(c?.author?.login ?? '');
 
 /** Agent rules and CI files: agents do not change them. */
 export const PROTECTED_PATHS = ['crew.config.json', '.github/', 'AGENTS.md', 'CLAUDE.md', 'agents/', 'events/'];
@@ -126,12 +129,18 @@ export function fileViolations(files = [], { allowedAcceptance = [] } = {}) {
 /**
  * Review markers: <!-- crew:review verdict=approve|changes agent=<id> sha=<commit> -->.
  * The last verdict of each agent is taken; only verdicts on the current head count.
+ * authors: every agent that wrote this PR (the **Agent:** line and the commits' Agent: trailers). Sibling sessions
+ * of an author (claude@pc-2 for claude@pc) are the author too. With no known author at all (a PR made outside crew),
+ * a review from the GitHub account that opened the PR does not count either.
  */
-export function reviewState(comments = [], { headSha, author, policy, prCreatedAt, now = Date.now() }) {
+export function reviewState(comments = [], { headSha, author, authors = [], prLogin = null, policy, prCreatedAt, now = Date.now() }) {
+  const writers = [...new Set([author, ...authors].filter(Boolean))];
   const latest = new Map();
   for (const c of comments) {
-    // in a public repo anyone can comment: review markers only count from repo members
-    if (!isTrustedComment(c)) continue;
+    // in a public repo anyone can comment: review markers only count from repo members, never from bots
+    // (a workflow that echoes text into a comment must not become an approval).
+    if (!isTrustedComment(c) || isBot(c)) continue;
+    if (!writers.length && prLogin && String(c.author?.login ?? '').toLowerCase() === String(prLogin).toLowerCase()) continue;
     for (const m of String(c.body ?? '').matchAll(/<!-- (?:crew|hk):review((?: \w+=\S+)*) -->/g)) {
       const f = Object.fromEntries([...m[1].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]));
       if (!f.agent || !f.verdict || !f.sha) continue;
@@ -139,8 +148,10 @@ export function reviewState(comments = [], { headSha, author, policy, prCreatedA
     }
   }
   const onHead = [...latest.values()].filter((r) => headSha && r.sha.length >= 7 && headSha.startsWith(r.sha));
-  const notAuthor = onHead.filter((r) => r.agent !== author);
-  const otherVendor = notAuthor.filter((r) => vendorOf(r.agent) !== vendorOf(author));
+  const byWriter = (r) => writers.some((w) => sameAgent(r.agent, w));
+  const notAuthor = onHead.filter((r) => !byWriter(r));
+  const vendors = new Set(writers.map(vendorOf));
+  const otherVendor = notAuthor.filter((r) => !vendors.has(vendorOf(r.agent)));
   const created = Date.parse(prCreatedAt ?? '');
   const fallback = policy.require === 'other-vendor' && Number.isFinite(created) && now - created > policy.fallback_minutes * 60_000;
   const eligible = policy.require === 'other-agent' || fallback ? notAuthor : otherVendor;
@@ -148,7 +159,7 @@ export function reviewState(comments = [], { headSha, author, policy, prCreatedA
     approvals: eligible.filter((r) => r.verdict === 'approve').map((r) => r.agent),
     changes: eligible.filter((r) => r.verdict === 'changes').map((r) => r.agent),
     stale: [...latest.values()].filter((r) => !onHead.includes(r)).map((r) => r.agent),
-    self: onHead.some((r) => r.agent === author),
+    self: onHead.some(byWriter),
     fallback,
   };
 }
@@ -157,10 +168,25 @@ export function reviewState(comments = [], { headSha, author, policy, prCreatedA
  * PR summary -> { state: success|pending|failure, description (<=140 chars for the status), problems[] }.
  * failure: a rule is violated (the agent must redo it); pending: all fine, waiting for an agent review.
  */
-export function evaluateGuard({ files = [], body = '', issueBody = '', comments = [], commits = [], headSha, risk = 'med', createdAt, config = {}, now = Date.now(), pendingFiles = [] }) {
+/** The crew version that opened the PR (crew pr open stamps it), or null. */
+export const prCrewVersion = (body = '') => /<!-- crew:pr version=(\d+\.\d+\.\d+) -->/.exec(body)?.[1] ?? null;
+/** The version pinned by the repo: CREW_HARNESS = "@gredescerber/agent-crew@1.2.3" (or a legacy github:…#v1.2.3). */
+export const pinnedVersion = (spec = '') => /@(\d+\.\d+\.\d+)\s*$|#v(\d+\.\d+\.\d+)\s*$/.exec(String(spec))?.slice(1).find(Boolean) ?? null;
+const older = (a, b) => {
+  const pa = a.split('.').map(Number); const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i];
+  return false;
+};
+
+export function evaluateGuard({ files = [], body = '', issueBody = '', issueTrusted = true, prLogin = null, requiredVersion = null, comments = [], commits = [], headSha, risk = 'med', createdAt, config = {}, now = Date.now(), pendingFiles = [] }) {
   const problems = [];
   const issue = linkedIssue(body);
   if (!issue) problems.push({ rule: 'closes', message: 'the PR description has no "Closes #N": a PR must close a task' });
+  // The client-side version gate is missing from the very versions it targets, so CI checks the stamp too.
+  const used = prCrewVersion(body);
+  if (used && requiredVersion && older(used, requiredVersion)) {
+    problems.push({ rule: 'outdated_crew', message: `opened with agent-crew ${used}, the repo pins ${requiredVersion}: update crew, then crew pr open again` });
+  }
 
   const noAgent = commits.filter((c) => !String(c.agent ?? '').trim()).map((c) => c.sha);
   if (noAgent.length) {
@@ -193,7 +219,8 @@ export function evaluateGuard({ files = [], body = '', issueBody = '', comments 
     }
   }
 
-  const allowedAcceptance = allowedAcceptanceChanges(issueBody);
+  // The task text can relax the acceptance rule only if the team made it a task (an outsider's issue has no labels).
+  const allowedAcceptance = issueTrusted ? allowedAcceptanceChanges(issueBody) : [];
   const { protectedHits, acceptanceHits } = fileViolations(files, { allowedAcceptance });
   if (protectedHits.length) {
     problems.push({
@@ -219,7 +246,8 @@ export function evaluateGuard({ files = [], body = '', issueBody = '', comments 
     });
   }
   const need = risk === 'high' ? policy.approvals_high : policy.approvals;
-  const review = reviewState(comments, { headSha, author, policy, prCreatedAt: createdAt, now });
+  const authors = commits.map((c) => String(c.agent ?? '').trim()).filter(Boolean);
+  const review = reviewState(comments, { headSha, author, authors, prLogin, policy, prCreatedAt: createdAt, now });
   if (review.changes.length) {
     problems.push({ rule: 'changes_requested', message: `reviewer requests changes: ${review.changes.join(', ')}` });
   }

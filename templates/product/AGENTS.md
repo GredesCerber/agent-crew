@@ -8,7 +8,7 @@ It is short on purpose. Details are in `agents/skills/*` and `docs/playbooks/*`;
 ## Who we are
 A team of humans and AI agents builds a software project. Tasks live in GitHub Issues.
 Work is coordinated only through `crew` (CLI or the MCP tools `crew_*`). Do not make agreements "in chat".
-Prefer the MCP tools `crew_*`: the project settings pre-approve them, while a shell call (`node …/crew.js`, a full path) may be refused by your host's permission check. Such a refusal comes from the host, not from crew: tell the human once which call was refused and that `crew doctor` shows the fix; do not work around it.
+Prefer the MCP tools `crew_*`: the project settings pre-approve them, while a shell call (`node …/crew.js`, a full path) may be refused by your host's permission check. Such a refusal comes from the host, not from crew: tell the human once which call was refused and that `crew doctor` shows the fix; do not work around it. With several agent sessions on one machine, a terminal `crew` call outside your task worktree cannot know which session it is and refuses (`ambiguous_agent`): use the MCP tools.
 
 **Order:** brief (`docs/brief.md`) → brief analysis with a demo scenario (skill `crew-brief-analysis`) → plan (`crew-kickoff`) → approval → tasks → code.
 No product code is written before the plan is approved. Priority always goes to what is visible in the demo scenario.

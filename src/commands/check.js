@@ -31,10 +31,17 @@ export function countTests(dir, pattern = DEFAULT_TESTS_PATTERN) {
  * Whether the run counts for crew pr open: all config steps passed (or were skipped by the rules).
  * A partial run (--only) does not count as green.
  */
-/** Is a command-line tool installed (docker, uv, ...)? Only plain names are checked. */
-export function hasTool(name) {
+/**
+ * Is a command-line tool installed (docker, uv, go, ...)? Only plain names are checked.
+ * Present = it starts at all: a non-zero exit (go and java reject --version) still means installed; only
+ * "not found" means missing. On Windows npm/pnpm/yarn are .cmd shims that spawn without a shell cannot see,
+ * so `where` is asked as well.
+ */
+export function hasTool(name, { exec = run, platform = process.platform } = {}) {
   if (!/^[\w.-]+$/.test(String(name))) return false;
-  return run(name, ['--version'], { allowFail: true }).code === 0;
+  const r = exec(name, ['--version'], { allowFail: true });
+  if (r.code !== -1 || !/ENOENT|not found|cannot find/i.test(r.stderr ?? '')) return true;
+  return platform === 'win32' && exec('where', [name], { allowFail: true }).code === 0;
 }
 
 export function isFullRun(results = [], steps = []) {

@@ -29,6 +29,8 @@ export function githubData(root) {
     prs: ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [],
     questions: openQuestions(root),
     team: teamOf(root),
+    // owner markers of claimed tasks, so "stale" means what the sweep means
+    claimComments: Object.fromEntries((ghJson(['issue', 'list', '--state', 'open', '--label', 'status:claimed', '--limit', '100', '--json', 'number,comments'], { cwd: root, allowFail: true }) ?? []).map((i) => [i.number, i.comments ?? []])),
   };
 }
 

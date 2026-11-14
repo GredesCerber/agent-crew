@@ -33,7 +33,13 @@ const json = (res, code, body) => {
 /** The HTTP handler (exported for tests: no network, any source). */
 export function boardHandler({ source, token, repo, config = {}, allowedHosts }) {
   let members = null;
-  const getMembers = () => (members ??= source.members());
+  // cache only a real answer: a failed collaborators call would otherwise leave the assign list empty for good
+  const getMembers = () => {
+    if (members?.length) return members;
+    const got = source.members();
+    if (got?.length) members = got;
+    return got ?? [];
+  };
   return async (req, res) => {
     if (!allowedHosts.includes(String(req.headers.host ?? '').toLowerCase())) return json(res, 403, { error: 'bad host' });
     const url = new URL(req.url, 'http://x');
@@ -60,6 +66,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts })
       if (a.error) return json(res, 400, { error: a.error });
       if (a.noop) return json(res, 200, { ok: true, noop: true });
       const r = source.edit(a.args);
+      if (r.code === 0 && a.comment) source.edit(['issue', 'comment', String(current.number), '--body', a.comment]);
       return r.code === 0 ? json(res, 200, { ok: true }) : json(res, 502, { error: (r.stderr || r.stdout || 'gh failed').split('\n')[0] });
     }
     return json(res, 404, { error: 'not found' });

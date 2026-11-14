@@ -42,4 +42,5 @@ jobs:
         env:
           GH_TOKEN: "${{ github.token }}"
           PR: "${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}"
+          CREW_HARNESS: "${{ vars.CREW_HARNESS }}" # PRs opened with an older crew fail (outdated_crew)
         run: crew guard --pr "$PR" --report --json

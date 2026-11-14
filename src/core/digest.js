@@ -1,6 +1,6 @@
 // Team digest without an LLM: what waits for a human, stale leases, PRs, idle members. `crew digest` prints it;
 // the sweep job posts it to one pinned issue every 15 minutes, so no agent session has to poll the repo.
-import { labelValue } from './issues.js';
+import { labelValue, ownerState } from './issues.js';
 import { prQueue } from './queue.js';
 import { questionMeta, HUMAN_LABEL, QUESTION_LABEL } from './questions.js';
 
@@ -12,7 +12,7 @@ const minsSince = (now, iso) => Math.max(0, Math.round((now - Date.parse(iso ?? 
 const names = (xs) => (xs ?? []).map((x) => x.name);
 
 /** -> { sections: [{ key, title, lines }], counts } (pure, no network). */
-export function digestModel({ issues = [], prs = [], questions = [], team = null, config = {}, now = Date.now() } = {}) {
+export function digestModel({ issues = [], prs = [], questions = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
   const lease = config.lease_minutes ?? 45;
   const reviewWait = config.review?.fallback_minutes ?? 30;
   const st = (i) => labelValue(i, 'status');
@@ -24,12 +24,20 @@ export function digestModel({ issues = [], prs = [], questions = [], team = null
   const human = questions.filter((q) => names(q.labels).includes(HUMAN_LABEL))
     .map((q) => `#${q.number} ${q.title} (asked by ${questionMeta(q)?.from ?? 'an agent'})`);
   const blocked = tasks.filter((i) => ['blocked', 'needs-spec'].includes(st(i))).map((i) => `#${i.number} ${i.title} (${st(i)}, ${who(i)})`);
-  const stale = claimed.filter((i) => minsSince(now, i.updatedAt) > lease)
-    .map((i) => `#${i.number} ${i.title} (${who(i)}, quiet ${minsSince(now, i.updatedAt)} min, lease ${lease})`);
+  // Same rule as the sweep: the owner's last crew marker, not the issue's updatedAt (any bystander comment bumps that).
+  const quiet = (i) => {
+    const c = claimComments[i.number];
+    if (!c) return { stale: minsSince(now, i.updatedAt) > lease, min: minsSince(now, i.updatedAt) };
+    const s = ownerState(c, { now, leaseMinutes: lease });
+    return { stale: s.stale, min: minsSince(now, s.lastActivityAt ?? i.updatedAt) };
+  };
+  const stale = claimed.filter((i) => quiet(i).stale)
+    .map((i) => `#${i.number} ${i.title} (${who(i)}, quiet ${quiet(i).min} min, lease ${lease})`);
   const prLines = prQueue(prs, { me: 'crew-digest', login: null, reviewers: [], config, now }).map((x) =>
     x.kind === 'fix' ? `#${x.number} ${x.title}: waits for its author (${x.reason})`
       : x.kind === 'merge' ? `#${x.number} ${x.title}: ready to merge`
-        : `#${x.number} ${x.title}: waits for review ${x.age} min${x.age > reviewWait ? ' (slow)' : ''}`);
+        : x.kind === 'checks' ? `#${x.number} ${x.title}: approved, waiting for checks`
+          : `#${x.number} ${x.title}: waits for review ${x.age} min${x.age > reviewWait ? ' (slow)' : ''}`);
   const unanswered = questions.filter((q) => !names(q.labels).includes(HUMAN_LABEL))
     .map((q) => `#${q.number} ${q.title} (to ${who(q)}, ${minsSince(now, q.createdAt ?? q.updatedAt)} min)`);
   const idle = [];
@@ -37,6 +45,8 @@ export function digestModel({ issues = [], prs = [], questions = [], team = null
     const lc = m.login.toLowerCase();
     const mine = (i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === lc);
     if (claimed.some(mine)) continue;
+    // a member whose PR is open (in review or waiting for their fixes) is not idle
+    if (prs.some((p) => !p.isDraft && String(p.author?.login ?? '').toLowerCase() === lc)) continue;
     const waiting = ready.filter(mine).length;
     idle.push(`@${m.login}: nothing in progress, ${waiting ? `${waiting} ready task(s) assigned` : 'no ready tasks assigned'}`);
   }
