@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-14
+
 ### Added
 - `crew pr logs <n>`: the failing step of a red check's CI log (not the post-job cleanup), so agents stop asking humans to copy logs from the browser.
 - `crew task next` returns `kind: resume` first when this agent left a claimed task unfinished on this machine (the session died, e.g. out of usage) — no more "ready but never submitted".
