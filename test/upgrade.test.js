@@ -106,3 +106,29 @@ test('check: a step that requires a missing tool is skipped locally with a note 
     if (prevCI === undefined) delete process.env.CI; else process.env.CI = prevCI;
   }
 });
+
+test('pr open: conflicts with main are found before pushing (real git merge-tree)', async () => {
+  const { mainConflicts } = await import('../src/commands/pr.js');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { git } = await import('../src/core/exec.js');
+  const root = mkdtempSync(join(tmpdir(), 'crew-conf-'));
+  const g = (...a) => git(['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: root });
+  g('init', '-q', '-b', 'main');
+  writeFileSync(join(root, 'tr.json'), '{"a":1}\n');
+  g('add', '-A'); g('commit', '-q', '-m', 'base');
+  g('checkout', '-q', '-b', 'crew/5-x');
+  writeFileSync(join(root, 'tr.json'), '{"a":1,"mine":2}\n');
+  g('commit', '-q', '-am', 'mine');
+  g('checkout', '-q', 'main');
+  writeFileSync(join(root, 'tr.json'), '{"a":1,"theirs":3}\n');
+  g('commit', '-q', '-am', 'theirs');
+  g('update-ref', 'refs/remotes/origin/main', 'main');
+  g('checkout', '-q', 'crew/5-x');
+  const sh = (args) => (args[0] === 'fetch' ? { code: 0, stdout: '', stderr: '' } : git(args, { cwd: root, allowFail: true }));
+  assert.deepEqual(mainConflicts(root, sh), ['tr.json']);
+  g('checkout', '-q', 'main');
+  g('checkout', '-q', '-b', 'crew/6-y');
+  assert.deepEqual(mainConflicts(root, sh), [], 'no conflicts on a fresh branch');
+});

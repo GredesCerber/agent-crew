@@ -31,6 +31,17 @@ export function mainProtected(root, sh = (args) => gh(args, { cwd: root, allowFa
   }
 }
 
+/**
+ * Files that would conflict when merging origin/main into HEAD (git merge-tree, the working tree is untouched).
+ * Empty when there are no conflicts or git cannot tell (old git, no origin/main): then CI and crew-guard decide.
+ */
+export function mainConflicts(root, sh = (args) => git(args, { cwd: root, allowFail: true })) {
+  sh(['fetch', '--quiet', 'origin', 'main']);
+  const r = sh(['merge-tree', '--write-tree', '--name-only', '--no-messages', 'origin/main', 'HEAD']);
+  if (r.code !== 1) return [];
+  return r.stdout.split('\n').slice(1).map((s) => s.trim()).filter(Boolean);
+}
+
 export function issueFromBranch(branch) {
   return Number(/^(?:crew|hk)\/(\d+)-/.exec(branch)?.[1]) || null;
 }
@@ -132,6 +143,17 @@ export const prOpen = {
     // Is the task still mine? Otherwise (the lease was taken away, someone else claimed it) — two PRs for one task.
     const lease = checkLease({ id, me: agent, view: () => issue });
     if (lease.state === 'lost') return leaseLostError(fail, id, lease, agent);
+    // A PR that conflicts with main sits silently (CI does not even start). Shared files (translations, contracts)
+    // conflicted all the time at the hackathon: catch it here, before pushing, with the exact files.
+    const conflicts = mainConflicts(root);
+    if (conflicts.length) {
+      return fail('conflicts_with_main', `The branch conflicts with main in ${conflicts.length} file(s): ${conflicts.slice(0, 5).join(', ')}`, {
+        cause_hint: 'someone merged changes to the same lines; shared append-only files (translations, lists) conflict most often',
+        retry: 'git merge origin/main → resolve the conflicts (keep both sides where they just add) → crew commit -m "merge main" → crew check → crew pr open',
+        stop_when: 'you cannot tell which side is right — crew ask <area of the file> --text "..."',
+        artifacts: { conflicts },
+      });
+    }
 
     // A PR for this branch is already open (rework after review) — we only push and do not create a second PR.
     const existing = ghJson(['pr', 'view', branch, '--json', 'url,state,number'], { cwd: root, allowFail: true });
