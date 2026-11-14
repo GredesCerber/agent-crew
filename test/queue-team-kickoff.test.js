@@ -287,7 +287,7 @@ test('design/research tasks and independent: true do not wait for the skeleton; 
   const p = parsePrd(PRD(team('cap: api, infra, review', 'bob: web', 'dana: design')));
   const ops = Object.fromEntries(planKickoff(p, []).ops.filter((o) => o.op === 'create').map((o) => [o.id, o]));
   assert.ok(ops.T4.labels.includes('status:ready'), 'design task ready at kickoff');
-  assert.equal(ops.T4.after, undefined);
+  assert.deepEqual(ops.T4.after, [], 'no dependencies');
   assert.ok(ops.T3.labels.includes('status:waiting'), 'web waits for the skeleton');
   const ind = parsePrd(APPROVED + skel + t('T2', 'web', ['independent: true']));
   assert.ok(planKickoff(ind, []).ops.find((o) => o.id === 'T2').labels.includes('status:ready'));
