@@ -17,6 +17,7 @@ The rules for a product built with it live in another file: `templates/product/A
 3. A new host: `adapters/<host>/adapter.js` + a generation test.
 4. `npm test` must be green. Tests never touch the network or GitHub.
 5. Conventional Commits. One PR, one task.
+6. Every user-visible change adds a line to `CHANGELOG.md` under **Unreleased** (Added / Changed / Fixed). A release renames that section to the version and date and uses it as the GitHub release notes.
 
 ## Needs human review
 - `templates/product/AGENTS.md`, roles and skills: they change agent behavior for everyone.
