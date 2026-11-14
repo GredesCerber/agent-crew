@@ -73,3 +73,11 @@ test('crew digest command: summary, warning status and registry', () => {
   assert.equal(quiet.status, 'success');
   assert.equal(findCommand(['digest']).name, 'digest');
 });
+
+test('crew board carries the captain panel (same digest as the pinned issue)', async () => {
+  const { boardModel, renderPage } = await import('../src/core/board.js');
+  const m = boardModel({ ...DATA, members: ['ami'], config: { lease_minutes: 45 }, now: NOW });
+  assert.deepEqual(m.digest.counts, digestModel({ ...DATA, config: { lease_minutes: 45 }, now: NOW }).counts);
+  assert.match(renderPage({ token: 't', repo: 'o/r' }), /id="kpis"/);
+  assert.equal(boardModel({ now: NOW }).digest.counts.human, 0, 'works without questions or team');
+});

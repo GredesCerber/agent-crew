@@ -3,6 +3,7 @@
 import { labelValue } from './issues.js';
 import { prQueue } from './queue.js';
 import { LOGIN_RE } from './prd.js';
+import { digestModel } from './digest.js';
 
 export const COLUMNS = ['ready', 'claimed', 'review', 'waiting', 'blocked', 'needs-spec'];
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -11,7 +12,7 @@ export const BOARD_STATUSES = ['ready', 'blocked', 'needs-spec', 'waiting'];
 
 const prio = (i) => labelValue(i, 'priority') ?? 'normal';
 
-export function boardModel({ issues = [], prs = [], members = [], config = {}, now = Date.now() } = {}) {
+export function boardModel({ issues = [], prs = [], members = [], questions = [], team = null, config = {}, now = Date.now() } = {}) {
   const columns = Object.fromEntries(COLUMNS.map((c) => [c, []]));
   const other = [];
   for (const i of issues) {
@@ -35,7 +36,9 @@ export function boardModel({ issues = [], prs = [], members = [], config = {}, n
   const queue = prQueue(prs, { me: 'board', login: null, reviewers: [], config, now }).map((x) => ({
     kind: x.kind, number: x.number, title: x.title, risk: x.risk, age_min: x.age, reason: x.reason ?? null, have: x.have ?? null, need: x.need ?? null,
   }));
-  return { columns, untracked: other.length, prs: queue, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
+  // Captain panel: the same status crew digest posts to the pinned issue.
+  const digest = digestModel({ issues, prs, questions, team, config, now });
+  return { columns, untracked: other.length, prs: queue, digest, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
 }
 
 /**
@@ -87,20 +90,26 @@ export function renderPage({ token, repo }) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>crew board — ${esc(repo)}</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--muted:#667085;--line:#e3e6ec;--hi:#d92d20}
-@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1f26;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a313b}}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--muted:#667085;--line:#e3e6ec;--hi:#d92d20;--warn:#b54708;--good:#067647}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1f26;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a313b;--hi:#f97066;--warn:#fdb022;--good:#47cd89}}
 *{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 header h1{font-size:16px;margin:0}.muted{color:var(--muted)}
 main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:12px 16px}
-section h2,#prs h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 8px}
+section h2,#prs h2,.alerts h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px}
 .card a{color:var(--ink);text-decoration:none;font-weight:600}.meta{color:var(--muted);font-size:12px;margin:4px 0 6px}
 .prio-high{border-left:4px solid var(--hi)}.prio-low{opacity:.75}
 .row{display:flex;gap:6px;flex-wrap:wrap}select{font:inherit;font-size:12px;padding:2px 4px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 #prs{padding:0 16px 16px}#prs a{color:var(--ink)}#prs li{margin:4px 0}#msg{color:var(--hi)}
+#cap{padding:12px 16px 0}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:12px}.kpi.bad{border-color:var(--hi)}.kpi.bad b{color:var(--hi)}.kpi.warn{border-color:var(--warn)}.kpi.warn b{color:var(--warn)}
+.alerts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-top:8px}.alerts ul{margin:0;padding-left:18px}.alerts li{margin:2px 0}
+.ok{color:var(--good)}
 </style></head><body>
 <header><h1>crew board</h1><span class="muted">${esc(repo)}</span><span class="muted" id="time"></span><span id="msg"></span></header>
+<div id="cap"><div class="kpis" id="kpis"></div><div class="alerts" id="alerts"></div></div>
 <main id="cols"></main>
 <div id="prs"><h2>Pull requests waiting</h2><ul id="prlist"></ul></div>
 <script>
@@ -111,6 +120,11 @@ const sel=(opts,cur,on)=>{const s=e('select',{on:{change:()=>on(s.value)}});for(
 async function act(issue,op,value){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json','x-crew-token':TOKEN},body:JSON.stringify({issue,op,value})});const j=await r.json();document.getElementById('msg').textContent=j.error||'';load()}
 async function load(){const r=await fetch('/api/board',{headers:{'x-crew-token':TOKEN}});const m=await r.json();if(m.error){document.getElementById('msg').textContent=m.error;return}
 document.getElementById('time').textContent='updated '+new Date(m.generated_at).toLocaleTimeString();
+const d=m.digest,c=d.counts,k=document.getElementById('kpis');k.replaceChildren();
+for(const[n,l,cls]of[[c.ready,'ready',''],[c.claimed,'in progress',''],[c.human,'need a human',c.human?'bad':''],[c.stale,'stale leases',c.stale?'warn':''],[c.prs,'PRs waiting',''],[c.questions,'open questions',''],[c.idle,'idle members',c.idle?'warn':'']])k.append(e('div',{class:'kpi '+cls},e('b',{},String(n)),e('span',{},l)));
+const al=document.getElementById('alerts');al.replaceChildren();const busy=d.sections.filter(s=>s.key!=='prs'&&s.lines.length);
+for(const s of busy){const ul=e('ul');for(const l of s.lines)ul.append(e('li',{},l));al.append(e('div',{class:'card'},e('h2',{},s.title),ul))}
+if(!busy.length)al.append(e('div',{class:'card ok'},'All clear: nobody waits for a human, no stale leases, everyone is busy.'));
 const cols=document.getElementById('cols');cols.replaceChildren();
 for(const c of COLS){const s=e('section',{},e('h2',{},c+' ('+m.columns[c].length+')'));
 for(const t of m.columns[c]){const who=[['','unassigned'],...m.members.map(x=>[x,x])];

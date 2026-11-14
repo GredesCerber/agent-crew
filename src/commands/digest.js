@@ -13,14 +13,22 @@ import { digestModel, renderDigest, DIGEST_LABEL, DIGEST_TITLE } from '../core/d
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
+export const openQuestions = (root) =>
+  ghJson(['issue', 'list', '--state', 'open', '--label', QUESTION_LABEL, '--limit', '100', '--json', 'number,title,body,labels,assignees,createdAt'], { cwd: root, allowFail: true }) ?? [];
+
+/** The crew-team block of docs/prd.md in this checkout, or null. */
+export function teamOf(root) {
+  const p = join(root, DEFAULT_PRD);
+  return existsSync(p) ? parsePrd(readFileSync(p, 'utf8')).team : null;
+}
+
 /** Live data through gh (tests pass deps.data instead). */
 export function githubData(root) {
-  const p = join(root, DEFAULT_PRD);
   return {
     issues: listIssues({ limit: 500 }),
     prs: ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [],
-    questions: ghJson(['issue', 'list', '--state', 'open', '--label', QUESTION_LABEL, '--limit', '100', '--json', 'number,title,body,labels,assignees,createdAt'], { cwd: root, allowFail: true }) ?? [],
-    team: existsSync(p) ? parsePrd(readFileSync(p, 'utf8')).team : null,
+    questions: openQuestions(root),
+    team: teamOf(root),
   };
 }
 

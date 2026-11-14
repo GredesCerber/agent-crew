@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- `crew board` shows a captain panel on top: counters (ready, in progress, need a human, stale leases, PRs waiting, open questions, idle members) and the lists behind them — the same status `crew digest` posts.
+
 ## [0.6.0] — 2026-11-14
 
 ### Added

@@ -9,6 +9,7 @@ import { gh, ghJson } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
 import { listIssues } from '../core/issues.js';
 import { boardModel, actionArgs, renderPage } from '../core/board.js';
+import { openQuestions, teamOf } from './digest.js';
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
@@ -19,6 +20,8 @@ export function githubSource(root) {
     prs: () => ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [],
     members: () => (gh(['api', 'repos/{owner}/{repo}/collaborators', '--paginate', '--jq', '.[].login'], { cwd: root, allowFail: true }).stdout || '').split('\n').filter(Boolean),
     edit: (args) => gh(args, { cwd: root, allowFail: true }),
+    questions: () => openQuestions(root),
+    team: () => teamOf(root),
   };
 }
 
@@ -41,7 +44,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts })
     if (!url.pathname.startsWith('/api/')) return json(res, 404, { error: 'not found' });
     if (req.headers['x-crew-token'] !== token) return json(res, 403, { error: 'bad token — reload the page from the URL crew board printed' });
     if (req.method === 'GET' && url.pathname === '/api/board') {
-      return json(res, 200, boardModel({ issues: source.issues(), prs: source.prs(), members: getMembers(), config }));
+      return json(res, 200, boardModel({ issues: source.issues(), prs: source.prs(), members: getMembers(), questions: source.questions?.() ?? [], team: source.team?.() ?? null, config }));
     }
     if (req.method === 'POST' && url.pathname === '/api/action') {
       if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: 'json only' });
