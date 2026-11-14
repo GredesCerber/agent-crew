@@ -3,7 +3,9 @@
 All notable changes to agent-crew. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 Every PR adds a line under **Unreleased**; a release renames that section to the version and date.
 
-## [Unreleased] — 0.6.0
+## [Unreleased]
+
+## [0.6.0] — 2026-11-14
 
 ### Added
 - `crew board`: a local task board in the browser — queue by status, PRs waiting; set assignee, status and priority by hand without spending agent tokens. Listens on 127.0.0.1 only, per-run token, Host check.
