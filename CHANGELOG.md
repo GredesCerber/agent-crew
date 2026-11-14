@@ -19,7 +19,7 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ### Changed
 - `crew pr open` refuses when the branch conflicts with `main` (checked with `git merge-tree`, listing the files) and when the local crew is older than the repo's `CREW_HARNESS`.
-- A `v*` tag also creates the GitHub Release, with notes taken from this file.
+- A `v*` tag stages the version on npm through trusted publishing (`npm stage publish`; a maintainer approves it with 2FA) and creates the GitHub Release with notes taken from this file.
 - Legacy `hk:` markers and `hk/<id>-` branches are read as their `crew` equivalents, so migrated projects keep their tasks, leases and reviews.
 
 ### Fixed

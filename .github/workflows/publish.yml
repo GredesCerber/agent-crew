@@ -1,6 +1,7 @@
-# Publish to npm on a version tag (vX.Y.Z) via npm trusted publishing (OIDC): no token in the repo.
-# One-time setup on npmjs.com: package @gredescerber/agent-crew → Settings → Trusted publishing → GitHub Actions,
-# repository GredesCerber/agent-crew, workflow publish.yml.
+# Stage a release on npm on a version tag (vX.Y.Z) via npm trusted publishing (OIDC): no token in the repo.
+# The trusted publisher (npmjs.com → package → Settings → Trusted publishing: GredesCerber/agent-crew, publish.yml)
+# allows only `npm stage publish`: the version stays uninstallable until a maintainer approves it with 2FA
+# (`npm stage approve <id>`), so a stolen CI token cannot ship a release on its own.
 name: publish
 
 on:
@@ -18,17 +19,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
-      - run: npm install -g npm@latest # trusted publishing needs a recent npm
+      - run: npm install -g npm@latest # npm stage needs npm 11.15+
       - run: npm test
       - name: Tag matches package.json version
         run: |
           v="$(node -p "require('./package.json').version")"
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME, package.json $v"; exit 1; }
-      - name: Publish (skipped if this version is already on npm, e.g. published by hand)
+      - name: Stage on npm (skipped if this version is already on npm, e.g. published by hand)
         run: |
           n="$(node -p "require('./package.json').name")"; v="$(node -p "require('./package.json').version")"
           if npm view "$n@$v" version >/dev/null 2>&1; then echo "$n@$v is already on npm — skipping"; exit 0; fi
-          npm publish --provenance --access public
+          npm stage publish --provenance --access public
+          echo "::notice::$n@$v is staged; approve it with 2FA: npm stage approve <id> (see the output above)"
       - name: GitHub Release with notes from CHANGELOG.md (skipped if it exists)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
