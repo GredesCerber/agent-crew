@@ -243,6 +243,7 @@ bob: api
 | `crew upgrade [--apply]` | обновить существующий проект до установленной версии (правила, навыки, workflows, конфиги агентов; переводит проекты с hk); `--apply` открывает PR |
 | `crew ask <зона\|@логин> --text "..." [--task N] [--human]` | вопрос хозяину зоны; вопрос — это issue (`crew:question`), ответ приходит в `crew task next` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | вопросы к тебе и ответы на твои / ответить и закрыть (или передать человеку с `needs-human`) |
+| `crew pr waive <n> --rule <r> --reason "..."` | только человек: снять «бумажное» правило crew-guard (closes, agent_trailer, not_crew_pr) для текущего коммита PR, сделанного без crew; ревью всё равно нужно |
 | `crew merge-ready [--dry_run]` | смержить готовые PR (ревью, зелёные check и crew-guard), которые не сольются сами; запускает job в CI по расписанию, сессия агента не нужна |
 | `crew task cleanup [--dry_run]` | убрать worktree закрытых задач (только без незакоммиченных правок и с работой, уже сохранённой в main или на GitHub) |
 | `crew task lint` | проверить `docs/prd.md` без сети: все ошибки сразу (строка, id, правило) |
