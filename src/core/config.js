@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { pinnedId } from './session.js';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -72,6 +73,11 @@ export const machineName = () =>
  */
 export function agentId(env = process.env) {
   if (env.CREW_AGENT_ID) return env.CREW_AGENT_ID;
+  // A task worktree remembers who claimed it (crew task claim), so CLI calls there act as the same session.
+  if (env === process.env) {
+    const pinned = pinnedId();
+    if (pinned) return pinned;
+  }
   const base = env.CREW_AGENT || 'human';
   return base.includes('@') ? base : `${base}@${machineName()}`;
 }

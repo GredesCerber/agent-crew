@@ -1,6 +1,8 @@
 // Minimal MCP server (stdio, JSON-RPC 2.0, one message per line).
 // Exposes crew commands as tools: crew_task_next, crew_task_claim, crew_check, ...
 // Connects to any MCP client: Claude Code, Codex, Cursor, etc. No dependencies.
+import { claimSlot } from '../core/session.js';
+import { agentId } from '../core/config.js';
 import { createInterface } from 'node:readline';
 import { agentCommands, toolName, inputSchema, validate } from '../core/registry.js';
 import { CrewError, fail } from '../core/output.js';
@@ -51,6 +53,14 @@ export async function handle(msg) {
 }
 
 export function startServer() {
+  // One MCP server per agent session: take a free name slot (claude@pc, claude@pc-2, ...) unless CREW_AGENT_ID is set.
+  if (!process.env.CREW_AGENT_ID) {
+    const slot = claimSlot(agentId());
+    if (slot) {
+      process.env.CREW_AGENT_ID = slot.id;
+      for (const ev of ['exit', 'SIGINT', 'SIGTERM']) process.once(ev, () => { slot.release(); if (ev !== 'exit') process.exit(0); });
+    }
+  }
   const rl = createInterface({ input: process.stdin });
   const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
   rl.on('line', async (line) => {

@@ -11,6 +11,7 @@ import {
 import { prQueue, taskOrder } from '../core/queue.js';
 import { updateHint } from '../core/version.js';
 import { loadQuestions } from './ask.js';
+import { pinId } from '../core/session.js';
 import { inboxFor } from '../core/questions.js';
 import { DEFAULT_PRD, parsePrd, teamReviewers } from '../core/prd.js';
 
@@ -289,6 +290,7 @@ const claim = {
     let ws;
     try {
       ws = prepareWorkspace({ root, id, title: issue.title, no_worktree });
+      if (ws.worktree && ws.worktree !== root) pinId(ws.worktree, me);
     } catch (e) {
       // Rollback: the task must not stay stuck in claimed until sweep (~45 min).
       comment(id, `${marker('release', { agent: me, at: new Date().toISOString() })}\n↩️ Could not prepare the branch/worktree; the task was returned to the queue.`);
