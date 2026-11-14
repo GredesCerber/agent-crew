@@ -282,3 +282,17 @@ test('crew task next: review first, then own tasks; tasks_only (crew worker) - n
   assert.equal(w.artifacts.issue, 13);
   assert.equal(w.artifacts.mine, true);
 });
+
+test('design/research tasks and independent: true do not wait for the skeleton; member_waits when all of someone\'s tasks wait for others', () => {
+  const p = parsePrd(PRD(team('cap: api, infra, review', 'bob: web', 'dana: design')));
+  const ops = Object.fromEntries(planKickoff(p, []).ops.filter((o) => o.op === 'create').map((o) => [o.id, o]));
+  assert.ok(ops.T4.labels.includes('status:ready'), 'design task ready at kickoff');
+  assert.equal(ops.T4.after, undefined);
+  assert.ok(ops.T3.labels.includes('status:waiting'), 'web waits for the skeleton');
+  const ind = parsePrd(APPROVED + skel + t('T2', 'web', ['independent: true']));
+  assert.ok(planKickoff(ind, []).ops.find((o) => o.id === 'T2').labels.includes('status:ready'));
+  // bob's only task waits for the api task (not just the skeleton) -> warning
+  const waits = lintPrd(parsePrd(APPROVED + team('cap: api, infra, review', 'bob: web', 'dana: design') + skel + t('T2', 'api') + t('T3', 'web', ['after: [T2]']) + t('T4', 'design')), { areas: AREAS });
+  assert.ok(waits.warnings.some((w) => w.rule === 'member_waits' && /bob/.test(w.message)), JSON.stringify(waits.warnings));
+  assert.ok(!waits.warnings.some((w) => w.rule === 'member_waits' && /dana|cap/.test(w.message)));
+});

@@ -12,12 +12,17 @@ export const HIGH_STAKES_AREAS = ['contracts', 'infra'];
 export const MAX_TASKS = 25;
 export const DEFAULT_PRD = 'docs/prd.md';
 
-const TASK_KEYS = ['id', 'title', 'epic', 'area', 'tier', 'risk', 'after', 'paths', 'contract', 'goal', 'acceptance', 'out_of_scope', 'tests', 'req', 'changes_acceptance', 'tests_for', 'skeleton', 'ready'];
+const TASK_KEYS = ['id', 'title', 'epic', 'area', 'tier', 'risk', 'after', 'paths', 'contract', 'goal', 'acceptance', 'out_of_scope', 'tests', 'req', 'changes_acceptance', 'tests_for', 'skeleton', 'ready', 'independent'];
+/**
+ * Areas whose tasks do not wait for the skeleton (no code: mockups, research, docs). At the hackathon the
+ * designer idled until the skeleton merged. A task elsewhere can opt out with `independent: true`.
+ */
+export const INDEPENDENT_AREAS = ['design', 'research'];
 const EPIC_KEYS = ['id', 'title', 'scenario', 'demo'];
 const TASK_REQUIRED = ['id', 'title', 'area', 'tier', 'goal', 'acceptance'];
 const EPIC_REQUIRED = ['id', 'title', 'scenario'];
 const LIST_KEYS = ['acceptance', 'after', 'paths', 'out_of_scope', 'tests', 'req', 'changes_acceptance'];
-const BOOL_KEYS = ['skeleton', 'ready'];
+const BOOL_KEYS = ['skeleton', 'ready', 'independent'];
 
 const err = (line, id, rule, message) => ({ line, id: id ?? null, rule, message });
 
@@ -194,7 +199,8 @@ const skeletonOf = (tasks) => tasks.find((t) => t.fields.skeleton === true) ?? n
  */
 export function depsOf(task, skeletonId, tasks = []) {
   const out = [...(task.fields.after ?? [])];
-  if (skeletonId && task.id !== skeletonId && !out.includes(skeletonId)) out.unshift(skeletonId);
+  const independent = task.fields.independent === true || INDEPENDENT_AREAS.includes(task.fields.area);
+  if (skeletonId && task.id !== skeletonId && !independent && !out.includes(skeletonId)) out.unshift(skeletonId);
   for (const t of tasks) if (t.fields.tests_for === task.id && t.id && !out.includes(t.id)) out.push(t.id);
   return out;
 }
@@ -432,6 +438,19 @@ function lintTeam({ tasks, team }, { areas, errors, warnings }) {
   for (const [a, t] of noOwner) errors.push(err(t.lines.area ?? t.line, t.id, 'area_no_owner', `area ${a} has no owner in the crew-team block: assign it to someone on the team`));
   for (const m of team.members) {
     if (load.get(m.login) === 0 && !m.review) warnings.push(err(m.line, null, 'member_idle', `${m.login} has no tasks in their areas (${m.areas.join(', ') || '-'}): give them an area with tasks`));
+  }
+  // Nobody should wait for someone else's task at the start: each member needs a task that is ready right after kickoff.
+  const skel = tasks.find((t) => t.fields.skeleton === true);
+  const startable = new Map(team.members.map((m) => [m.login, 0]));
+  for (const t of tasks) {
+    const o = owner.get(t.fields.area);
+    // ready at kickoff, or right after the skeleton (which everyone waits for briefly)
+    if (o && (t === skel || depsOf(t, skel?.id ?? null, tasks).every((d) => d === skel?.id))) startable.set(o, startable.get(o) + 1);
+  }
+  for (const m of team.members) {
+    if (load.get(m.login) > 0 && startable.get(m.login) === 0) {
+      warnings.push(err(m.line, null, 'member_waits', `every task of ${m.login} waits for other people's tasks: add one that can start right away (area ${INDEPENDENT_AREAS.join('/')}, docs, or independent: true)`));
+    }
   }
   const counts = [...load.values()].filter((n) => n > 0);
   if (counts.length > 1 && Math.max(...counts) >= 3 && Math.max(...counts) > 2 * Math.min(...counts)) {
