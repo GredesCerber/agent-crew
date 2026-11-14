@@ -224,25 +224,50 @@ export function evaluateGuard({ files = [], body = '', issueBody = '', comments 
     problems.push({ rule: 'changes_requested', message: `reviewer requests changes: ${review.changes.join(', ')}` });
   }
 
+  // A human may waive "paperwork" rules for this commit (crew pr waive): a PR made outside crew (cloud session,
+  // plain git). Protected files, acceptance tests and the review itself can never be waived.
+  const waivers = waivedRules(comments, headSha);
+  const waived = problems.filter((p) => WAIVABLE.includes(p.rule) && waivers.has(p.rule)).map((p) => p.rule);
+  for (const r of waived) problems.splice(problems.findIndex((p) => p.rule === r), 1);
+
   const fail = problems.length > 0;
   const reviewed = review.approvals.length >= need;
   const state = fail ? 'failure' : reviewed ? 'success' : 'pending';
   const who = policy.require === 'other-vendor' && !review.fallback ? 'an agent from another vendor' : 'another agent';
-  const description = fail
+  const description = (fail
     ? problems.map((p) => p.rule).join(', ')
     : reviewed
       ? `ok: review ${review.approvals.join(', ') || 'not required'}`
-      : `waiting for review by ${who}: ${review.approvals.length}/${need}`;
+      : `waiting for review by ${who}: ${review.approvals.length}/${need}`) + (waived.length && !fail ? ` (waived: ${waived.join(', ')})` : '');
   return {
     state,
     description: description.slice(0, 140),
     problems,
+    waived,
     issue,
     author,
     review: { ...review, need, require: policy.require },
     allowed_acceptance: allowedAcceptance,
   };
 }
+
+/** Rules a human can waive with crew pr waive (paperwork only). */
+export const WAIVABLE = ['closes', 'agent_trailer', 'not_crew_pr'];
+
+/** Waived rules for this head commit: <!-- crew:waive rule=<r> sha=<head> --> in trusted, non-bot comments. */
+export function waivedRules(comments = [], headSha = '') {
+  const out = new Set();
+  for (const c of comments) {
+    if (!isTrustedComment(c) || /\[bot\]$|^github-actions$/.test(c.author?.login ?? '')) continue;
+    for (const m of String(c.body ?? '').matchAll(/<!-- crew:waive((?: \w+=\S+)*) -->/g)) {
+      const f = Object.fromEntries([...m[1].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]));
+      if (f.rule && f.sha && f.sha.length >= 7 && String(headSha).startsWith(f.sha)) out.add(f.rule);
+    }
+  }
+  return out;
+}
+
+export const waiveMarker = ({ rule, sha }) => `<!-- crew:waive rule=${rule} sha=${sha} -->`;
 
 /** Review marker text for a comment. */
 export const reviewMarker = ({ verdict, agent, sha }) => `<!-- crew:review verdict=${verdict} agent=${agent} sha=${sha} -->`;

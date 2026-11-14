@@ -148,3 +148,25 @@ test('merge-ready merges only ready PRs (review + green check and crew-guard, no
   assert.deepEqual(r.artifacts.merged, [1]);
   assert.deepEqual(calls, [['pr', 'merge', '1', '--merge', '--delete-branch']]);
 });
+
+test('crew-guard: a human waiver lifts paperwork rules for this commit only; protected files and review stay', async () => {
+  const { evaluateGuard, waiveMarker } = await import('../src/core/guard.js');
+  const SHA = '0123456789abcdef';
+  const base = { body: 'cloud session change', headSha: SHA, createdAt: '2026-11-14T10:00:00Z', now: Date.parse('2026-11-14T12:00:00Z'), config: {}, files: [{ filename: 'web/a.ts', status: 'modified' }], commits: [{ sha: SHA, agent: null }] };
+  const human = (body) => ({ body, authorAssociation: 'OWNER', author: { login: 'cap' } });
+  const before = evaluateGuard(base);
+  assert.deepEqual(before.problems.map((p) => p.rule).sort(), ['agent_trailer', 'closes', 'not_crew_pr']);
+  const waivers = ['closes', 'agent_trailer', 'not_crew_pr'].map((rule) => human(waiveMarker({ rule, sha: SHA.slice(0, 12) })));
+  const after = evaluateGuard({ ...base, comments: waivers });
+  assert.equal(after.state, 'pending', 'still needs a review');
+  assert.deepEqual(after.waived.sort(), ['agent_trailer', 'closes', 'not_crew_pr']);
+  const approved = evaluateGuard({ ...base, comments: [...waivers, human(`<!-- crew:review verdict=approve agent=claude@a sha=${SHA.slice(0, 7)} -->`)] });
+  assert.equal(approved.state, 'success');
+  assert.match(approved.description, /waived/);
+  const newPush = evaluateGuard({ ...base, headSha: 'ffff' + SHA.slice(4), comments: waivers });
+  assert.equal(newPush.state, 'failure', 'a waiver is bound to its commit');
+  const prot = evaluateGuard({ ...base, files: [{ filename: '.github/workflows/crew.yml', status: 'modified' }], comments: [...waivers, human(waiveMarker({ rule: 'protected_paths', sha: SHA.slice(0, 12) }))] });
+  assert.ok(prot.problems.some((p) => p.rule === 'protected_paths'), 'protected files cannot be waived');
+  const bot = evaluateGuard({ ...base, comments: waivers.map((c) => ({ ...c, author: { login: 'github-actions[bot]' } })) });
+  assert.equal(bot.waived.length, 0, 'bots cannot waive');
+});

@@ -5,12 +5,13 @@ import { ok, fail } from '../core/output.js';
 import { git, gh, ghJson, currentBranch } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import { viewIssue, setStatus, labelValue } from '../core/issues.js';
-import { authorAgent, reviewMarker, reviewPolicy, vendorOf } from '../core/guard.js';
+import { WAIVABLE, waiveMarker, authorAgent, reviewMarker, reviewPolicy, vendorOf } from '../core/guard.js';
 import { checkLease, leaseLostError } from '../core/lease.js';
 import { isFullRun } from './check.js';
 import { safeText } from '../core/issues.js';
 import { REQUIRED_CHECKS } from './github.js';
 import { uiFiles, listShots, shotsSection } from '../core/shots.js';
+import { LOCAL_VERSION, compareVersions } from '../core/version.js';
 
 /**
  * Whether main has protection that waits for BOTH check AND crew-guard (without them GitHub auto-merge merges the PR immediately, skipping review).
@@ -143,6 +144,16 @@ export const prOpen = {
     // Is the task still mine? Otherwise (the lease was taken away, someone else claimed it) — two PRs for one task.
     const lease = checkLease({ id, me: agent, view: () => issue });
     if (lease.state === 'lost') return leaseLostError(fail, id, lease, agent);
+    // An outdated local crew opened PRs that bypassed review at the hackathon: refuse when the repo pins a newer one.
+    const required = /@(\d+\.\d+\.\d+)\s*$|#v(\d+\.\d+\.\d+)\s*$/.exec(gh(['variable', 'get', 'CREW_HARNESS'], { cwd: root, allowFail: true }).stdout ?? '');
+    const requiredVersion = required?.[1] ?? required?.[2];
+    if (requiredVersion && compareVersions(LOCAL_VERSION, requiredVersion) === -1) {
+      return fail('outdated_crew', `This repo uses agent-crew ${requiredVersion}, your crew is ${LOCAL_VERSION}`, {
+        cause_hint: 'fixes and rules of the newer version would not apply to your PR',
+        retry: `tell the human: npm i -g @gredescerber/agent-crew@${requiredVersion}, restart the agent session, then crew pr open`,
+        stop_when: 'you cannot update — ask the human',
+      });
+    }
     // A PR that conflicts with main sits silently (CI does not even start). Shared files (translations, contracts)
     // conflicted all the time at the hackathon: catch it here, before pushing, with the exact files.
     const conflicts = mainConflicts(root);
@@ -230,4 +241,33 @@ export const prOpen = {
   },
 };
 
-export default [prOpen, prReview];
+
+/**
+ * crew pr waive <n> --rule <r> --reason "..." — a human records why a paperwork rule does not apply to this commit
+ * (a PR made outside crew: cloud session, plain git). crew-guard then ignores that rule for this head commit only.
+ * Protected files, acceptance tests and the review can never be waived.
+ */
+export const prWaive = {
+  name: 'pr waive',
+  summary: 'Human: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit, with a reason',
+  agent: false,
+  args: [
+    { name: 'pr', type: 'number', positional: true, required: true, description: 'PR number' },
+    { name: 'rule', type: 'string', required: true, enum: WAIVABLE, description: 'the crew-guard rule to waive' },
+    { name: 'reason', type: 'string', required: true, description: 'why (kept in the PR for the record)' },
+  ],
+  run({ pr, rule, reason }) {
+    const { root } = loadConfig();
+    const view = ghJson(['pr', 'view', String(pr), '--json', 'headRefOid,state'], { cwd: root, allowFail: true });
+    if (!view || view.state !== 'OPEN') return fail('pr_not_open', `PR #${pr} is not open`, { retry: 'gh pr list' });
+    const sha = view.headRefOid.slice(0, 12);
+    gh(['pr', 'comment', String(pr), '--body', `${waiveMarker({ rule, sha })}
+**Waived \`${rule}\`** for commit ${sha.slice(0, 7)}: ${safeText(reason)}`], { cwd: root });
+    return ok(`Rule ${rule} waived for PR #${pr} at ${sha.slice(0, 7)}`, {
+      artifacts: { pr, rule, sha },
+      next_actions: ['crew-guard recomputes on this comment; the PR still needs a review', `a new push needs a new waiver: crew pr waive ${pr} --rule ${rule} --reason "..."`],
+    });
+  },
+};
+
+export default [prOpen, prReview, prWaive];

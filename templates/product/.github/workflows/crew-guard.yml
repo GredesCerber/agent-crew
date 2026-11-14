@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   guard:
-    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(github.event.comment.body, 'crew:review'))
+    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && (contains(github.event.comment.body, 'crew:review') || contains(github.event.comment.body, 'crew:waive')))
     runs-on: ubuntu-latest
     concurrency:
       group: crew-guard-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
