@@ -241,6 +241,8 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew shots before\|after --url <page> [--name <screen>]` | before/after screenshot (Playwright) for a task that changes the UI; `crew pr open` shows them as a Before / After table |
 | `crew board [--port 4747]` | local task board in the browser: queue by status, PRs waiting; set assignee, status and priority by hand (no agent tokens) |
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
+| `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
+| `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
 | `crew task cleanup [--dry_run]` | remove worktrees of closed tasks (only those with no uncommitted changes and with work already saved in main or on GitHub) |
 | `crew task lint` | validate `docs/prd.md` offline: all errors at once (line, id, rule) |
 | `crew task sweep` / `crew task promote` | return expired leases to the queue / move `waiting` tasks to `ready` when their dependencies close (run by CI) |

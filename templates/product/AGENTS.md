@@ -62,7 +62,7 @@ A task is taken by the **executor** — the agent that ran `crew task claim`. It
 ## When to stop
 - The same error 3 times → `crew task status <id> blocked --note "what I tried, what is in the way"`.
 - The task is unclear or the acceptance criteria are not verifiable → `crew task status <id> needs-spec --note "question"`. Do not guess.
-- Need to change someone else's area or `contracts/` → do not change, `blocked` with a description.
+- Need something from someone else's area or `contracts/` → do not change it: ask its owner with `crew ask <area> --text "..." --task <id>` (English, with facts). Only a human can decide (scope, product) → `crew ask <area> --human`. The answer comes back through `crew task next`.
 - The task is beyond you → `crew task release <id> --note "what I got done"`.
 - An issue with the label `crew:pause` is open → finish the current step and stop. The code checks this: `crew task next` and `crew task claim` return the error `paused` until a human closes the issue.
 
