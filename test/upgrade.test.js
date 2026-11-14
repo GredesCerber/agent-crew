@@ -132,3 +132,19 @@ test('pr open: conflicts with main are found before pushing (real git merge-tree
   g('checkout', '-q', '-b', 'crew/6-y');
   assert.deepEqual(mainConflicts(root, sh), [], 'no conflicts on a fresh branch');
 });
+
+test('merge-ready merges only ready PRs (review + green check and crew-guard, not auto-merged), deterministically', async () => {
+  const { default: mergeReady } = await import('../src/commands/merge-ready.js');
+  const SHA = 'abcdef1234567890';
+  const green = [{ name: 'check', conclusion: 'SUCCESS' }, { context: 'crew-guard', state: 'SUCCESS' }];
+  const approve = [{ body: `<!-- crew:review verdict=approve agent=claude@a sha=${SHA.slice(0, 7)} -->`, authorAssociation: 'MEMBER' }];
+  const pr = (number, risk, extra = {}) => ({ number, title: `PR ${number}`, body: `Closes #${number}\n**Agent:** \`codex@b\``, headRefOid: SHA, createdAt: '2026-11-14T10:00:00Z', isDraft: false, author: { login: 'b' }, labels: [{ name: `risk:${risk}` }], comments: approve, statusCheckRollup: green, ...extra });
+  const calls = [];
+  const r = mergeReady.run({}, {
+    config: { hosts: ['claude', 'codex'] },
+    prs: [pr(1, 'high'), pr(2, 'med', { autoMergeRequest: { enabledAt: 'x' } }), pr(3, 'high', { comments: [] }), pr(4, 'high', { mergeable: 'CONFLICTING' })],
+    gh: (args) => (calls.push(args), { code: 0, stdout: '', stderr: '' }),
+  });
+  assert.deepEqual(r.artifacts.merged, [1]);
+  assert.deepEqual(calls, [['pr', 'merge', '1', '--merge', '--delete-branch']]);
+});

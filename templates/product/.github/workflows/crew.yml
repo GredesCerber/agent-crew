@@ -69,9 +69,9 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # crew merge-ready merges ready PRs
       issues: write # change status labels and write release markers
-      pull-requests: read # recompute crew-guard for open PRs
+      pull-requests: write # recompute crew-guard and merge ready PRs
       statuses: write # the crew-guard commit status
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +89,11 @@ jobs:
           for n in $(gh pr list --state open --json number --jq '.[].number'); do
             crew guard --pr "$n" --report --json > /dev/null || true
           done
+
+      # Merge PRs that are ready but not auto-merged (risk:high, or auto-merge off): no agent session needed.
+      - name: Merge ready PRs
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: crew merge-ready --json
 
   # An issue was closed → waiting tasks whose crew:after are all closed become ready.
   promote:
