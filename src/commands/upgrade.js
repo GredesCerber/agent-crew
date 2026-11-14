@@ -21,6 +21,8 @@ export const OWNED = [
   ['skills', 'agents/skills'],
 ];
 const LEGACY_DELETE = ['.github/workflows/hk.yml', '.github/workflows/hk-guard.yml'];
+/** Skills shipped by hackathon-harness; a project's own skills (even named hk-*) are never touched. */
+const LEGACY_SKILLS = ['hk-kickoff', 'hk-review', 'hk-tz-analysis', 'hk-workflow'];
 const LEGACY_RENAME = [['hk.config.json', 'crew.config.json'], ['docs/tz.md', 'docs/brief.md'], ['docs/tz-analysis.md', 'docs/brief-analysis.md']];
 
 const walk = (abs, base = abs) => {
@@ -73,7 +75,9 @@ export function planUpgrade(repo, { files = ownedFiles(), defaults = DEFAULT_CON
     if (repo.exists(from) && !repo.exists(to)) { ops.push({ op: 'rename', from, path: to }); moved.set(to, repo.read(from)); }
   }
   for (const p of LEGACY_DELETE) if (repo.exists(p)) ops.push({ op: 'delete', path: p });
-  for (const p of repo.list?.('agents/skills') ?? []) if (/^agents\/skills\/hk-/.test(p)) ops.push({ op: 'delete', path: p });
+  for (const p of repo.list?.('agents/skills') ?? []) {
+    if (LEGACY_SKILLS.some((s) => p.startsWith(`agents/skills/${s}/`))) ops.push({ op: 'delete', path: p });
+  }
   for (const f of files) {
     const cur = repo.exists(f.path) ? repo.read(f.path) : null;
     if (cur === null) ops.push({ op: 'write', path: f.path, content: f.content, kind: 'create' });
@@ -127,7 +131,8 @@ export default {
       return fail('dirty_tree', 'Uncommitted changes in the project', { retry: 'commit or stash them, then crew upgrade --apply' });
     }
     git(['fetch', '--quiet', 'origin'], { cwd: root, allowFail: true });
-    const sw = git(['switch', '-c', branch, 'origin/main'], { cwd: root, allowFail: true });
+    const base = (gh(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd: root, allowFail: true }).stdout || '').trim() || 'main';
+    const sw = git(['switch', '-c', branch, `origin/${base}`], { cwd: root, allowFail: true });
     if (sw.code !== 0) return fail('branch_exists', `Could not create ${branch}`, { cause_hint: (sw.stderr || sw.stdout).split('\n')[0], retry: `git branch -D ${branch} (if it is a leftover), then crew upgrade --apply` });
     for (const o of plan.ops) {
       if (o.op === 'rename') git(['mv', o.from, o.path], { cwd: root });
@@ -156,9 +161,10 @@ export default {
       '- regenerated agent configs (crew adapters build)',
       '',
       'This PR changes protected files (AGENTS.md, .github/, agents/), so crew-guard fails it on purpose: a human reviews and merges it.',
+      'Check the diff of updated and deleted files: local customizations of AGENTS.md, workflows or roles are replaced by the package versions — re-apply the ones you need.',
       'After merging: `crew github setup --apply` (labels, CREW_HARNESS variable)' + (plan.legacy ? '; delete the old variable: `gh variable delete HK_HARNESS`.' : '.'),
     ].join('\n');
-    const pr = gh(['pr', 'create', '--head', branch, '--title', `chore: upgrade to agent-crew ${LOCAL_VERSION}`, '--body', body], { cwd: root, allowFail: true });
+    const pr = gh(['pr', 'create', '--base', base, '--head', branch, '--title', `chore: upgrade to agent-crew ${LOCAL_VERSION}`, '--body', body], { cwd: root, allowFail: true });
     return ok(`Upgrade PR: ${(pr.stdout || '').split('\n').pop() || '(gh pr create failed — open it by hand)'}`, {
       status: pr.code === 0 ? 'success' : 'warning',
       artifacts: { branch, version: LOCAL_VERSION, legacy: plan.legacy, changes: lines },

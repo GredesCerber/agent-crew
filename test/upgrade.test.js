@@ -24,6 +24,7 @@ test('legacy hk project: renames, deletes old workflows and hk-* skills, writes 
     '.github/workflows/hk.yml': 'x',
     '.github/workflows/hk-guard.yml': 'x',
     'agents/skills/hk-workflow/SKILL.md': 'old',
+    'agents/skills/hk-deploy/SKILL.md': 'our own skill',
     'AGENTS.md': 'rules v1\n',
     '.gitignore': '# hk: локальные файлы\n.hk/\n.mcp.json\n',
   });
