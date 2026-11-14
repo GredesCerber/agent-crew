@@ -32,7 +32,7 @@ export function windowsCommand(searchPath = '') {
  */
 export const HEADLESS_TOOLS = [
   'Read', 'Edit', 'Write', 'MultiEdit', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent', 'mcp__crew',
-  'Bash(crew:*)', 'Bash(npm:*)', 'Bash(npx:*)', 'Bash(node:*)', 'Bash(uv:*)',
+  'Bash(crew:*)', 'Bash(crew.cmd:*)', 'Bash(npm:*)', 'Bash(npx:*)', 'Bash(node:*)', 'Bash(uv:*)',
   'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)',
   'Bash(git add:*)', 'Bash(git mv:*)', 'Bash(git rm:*)',
   'Bash(gh issue view:*)', 'Bash(gh pr view:*)', 'Bash(gh pr diff:*)',
@@ -63,7 +63,7 @@ export default {
     const ecc = config.ecc ?? {};
     const settings = {
       env: { CREW_AGENT: 'claude' },
-      permissions: { allow: ['Bash(crew:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)', 'mcp__crew'] },
+      permissions: { allow: ['Bash(crew:*)', 'Bash(crew.cmd:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)', 'mcp__crew'] },
     };
     if (ecc.enabled !== false) {
       settings.extraKnownMarketplaces = { ecc: { source: { source: 'git', url: ecc.marketplace ?? 'https://github.com/affaan-m/ECC.git' } } };

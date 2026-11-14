@@ -93,6 +93,8 @@ crew doctor
 
 `crew doctor` shows what is missing.
 
+**Windows:** if PowerShell refuses to run `crew` ("running scripts is disabled on this system"), call `crew.cmd` instead (same for `npm.cmd`); no policy change needed. Run crew from the project folder: in PowerShell `cd D:\path\to\project` (cmd needs `cd /d`).
+
 **Windows:** enable long paths in git, otherwise it fails on task worktrees and `node_modules`:
 
 ```bash
@@ -244,6 +246,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | human only: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit of a PR made outside crew; the review is still required |
+| `crew pr logs <n>` | why a PR check is red: the failing step of the CI log, no browser needed |
 | `crew merge-ready [--dry_run]` | merge PRs that are ready (review, green check and crew-guard) but not auto-merged; the scheduled CI job runs it, no agent session needed |
 | `crew digest [--post]` | team status without an LLM: what needs a human, stale leases, PRs waiting, open questions, idle members; the scheduled CI job keeps it in a pinned issue |
 | `crew task cleanup [--dry_run]` | remove worktrees of closed tasks (only those with no uncommitted changes and with work already saved in main or on GitHub) |

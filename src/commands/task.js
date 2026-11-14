@@ -11,9 +11,9 @@ import {
 import { prQueue, taskOrder } from '../core/queue.js';
 import { updateHint } from '../core/version.js';
 import { loadQuestions } from './ask.js';
-import { pinId } from '../core/session.js';
+import { pinId, pinnedId } from '../core/session.js';
 import { inboxFor } from '../core/questions.js';
-import { DEFAULT_PRD, parsePrd, teamReviewers } from '../core/prd.js';
+import { DEFAULT_PRD, parsePrd, teamReviewers, readyProblems } from '../core/prd.js';
 
 /** claimed without a claim marker (the label was set by hand): activity is the issue updatedAt or a push to the branch. */
 const isStaleNoOwner = (issue, lastCommitAt, now, leaseMinutes) =>
@@ -120,6 +120,21 @@ const next = {
     const me = deps.me ?? agentId();
     const login = deps.login !== undefined ? deps.login : myLogin();
     const team = deps.team !== undefined ? deps.team : teamFromPrd(root);
+
+    // 0. My own unfinished task on this machine (the session ended, e.g. out of usage): finish it before anything new.
+    const mineLeft = deps.unfinished ? deps.unfinished(root, me) : deps.config ? [] : unfinishedWork(root, me);
+    if (mineLeft.length) {
+      const u = mineLeft[0];
+      return ok(`Finish your own task first: #${u.id} (worktree ${u.path}, ${u.ahead} commit(s), no PR yet)`, {
+        artifacts: { kind: 'resume', issue: u.id, worktree: u.path, branch: u.branch, commits: u.ahead },
+        next_actions: [
+          ...claimNextActions(u.id, u.path).slice(0, 2),
+          `crew task heartbeat ${u.id} — the lease may be close to expiring`,
+          `see what is done: git -C ${JSON.stringify(u.path)} log --oneline origin/main..HEAD, and your last handoff in gh issue view ${u.id}`,
+          'finish the task: crew check → crew commit → crew pr open',
+        ],
+      });
+    }
 
     // 1. First unblock the team: merge a ready risk:high PR, do a review.
     if (!tasks_only) {
@@ -396,7 +411,7 @@ const status = {
     { name: 'note', type: 'string', description: 'handoff: what is done, what is left, where the artifacts are' },
     { name: 'force', type: 'boolean', description: 'change the status of someone else task (for humans)' },
   ],
-  run({ id, state, note = '', force = false }) {
+  run({ id, state, note = '', force = false }, deps = {}) {
     if (state === 'claimed') {
       return fail('use_claim', 'Status claimed is set only via crew task claim', {
         cause_hint: 'a claim is a lease with a marker and a worktree, not just a label',
@@ -404,8 +419,20 @@ const status = {
       });
     }
     const me = agentId();
+    const issue = (deps.viewIssue ?? viewIssue)(id);
+    // Anyone may set ready when the Definition of Ready holds; --force is a human override.
+    if (state === 'ready' && !force) {
+      const problems = readyProblems(issue);
+      if (problems.length) {
+        return fail('not_ready_spec', `#${id} is not ready: ${problems.join('; ')}`, {
+          cause_hint: 'Definition of Ready (docs/playbooks/issues.md): an area and testable acceptance criteria',
+          retry: `complete the issue body (gh issue edit ${id} --body-file …), then crew task status ${id} ready`,
+          stop_when: 'the criteria need a product decision: crew ask --human',
+        });
+      }
+    }
     if (!force) {
-      const owner = currentOwner(viewIssue(id)?.comments ?? []);
+      const owner = currentOwner(issue?.comments ?? []);
       if (owner && owner.agent !== me) return notOwner(id, owner.agent, me, `crew task status ${id} ${state}`);
     }
     if (['blocked', 'needs-spec'].includes(state) && !note) {
@@ -414,8 +441,8 @@ const status = {
         retry: `crew task status ${id} ${state} --note "..."`,
       });
     }
-    setStatus(id, state, { from: STATUS });
-    comment(id, `${marker('status', { agent: me, state, at: new Date().toISOString() })}\n📋 **${state}** — ${safeText(note)}`);
+    (deps.setStatus ?? setStatus)(id, state, { from: STATUS });
+    (deps.comment ?? comment)(id, `${marker('status', { agent: me, state, at: new Date().toISOString() })}\n📋 **${state}** — ${safeText(note)}`);
     return ok(`#${id} → ${state}`, { next_actions: state === 'review' || state === 'done' ? ['crew task next'] : ['crew status'] });
   },
 };
@@ -523,6 +550,30 @@ const promote = {
       : ok(summary, { artifacts });
   },
 };
+
+/**
+ * My claimed tasks left unfinished on this machine: a task worktree pinned to my agent id (crew task claim pins it),
+ * the issue still claimed by me, and no open PR from its branch. -> [{ id, path, branch, ahead }]
+ */
+export function unfinishedWork(root, me, {
+  list = () => git(['worktree', 'list', '--porcelain'], { cwd: root, allowFail: true }).stdout ?? '',
+  pin = pinnedId,
+  issue = (id) => viewIssue(id),
+  prHeads = () => (ghJson(['pr', 'list', '--state', 'open', '--limit', '100', '--json', 'headRefName'], { cwd: root, allowFail: true }) ?? []).map((p) => p.headRefName),
+  ahead = (path) => Number(git(['rev-list', '--count', 'origin/main..HEAD'], { cwd: path, allowFail: true }).stdout) || 0,
+} = {}) {
+  const mine = taskWorktrees(list()).filter((w) => pin(w.path) === me);
+  if (!mine.length) return [];
+  const heads = new Set(prHeads());
+  const out = [];
+  for (const w of mine) {
+    if (heads.has(w.branch)) continue;
+    const i = issue(w.id);
+    if (!i || i.state === 'CLOSED' || labelValue(i, 'status') !== 'claimed' || currentOwner(i.comments ?? [])?.agent !== me) continue;
+    out.push({ ...w, ahead: ahead(w.path) });
+  }
+  return out;
+}
 
 /** `git worktree list --porcelain` → [{ path, branch, id }] only for task branches crew/<id>-* (unlike parseWorktrees). */
 export function taskWorktrees(porcelain = '') {

@@ -14,7 +14,7 @@ needs-spec ──► ready ──► claimed ──► review ──► done
 | Status | What it means | Who sets it |
 |---|---|---|
 | `status:needs-spec` | the task exists but cannot be taken: no verifiable criteria, or it waits for another task | the default template; the planner; an agent via `crew task status <id> needs-spec` |
-| `status:ready` | can be taken | **only the product lead or planner**, after a DoR check (section 3) |
+| `status:ready` | can be taken | **anyone, agents included, through `crew task status <n> ready`**: crew checks the DoR (an `area:*` label and Given/When/Then criteria) and refuses otherwise. The product lead can still change it |
 | `status:claimed` | an agent is working, the lease is running | only `crew task claim` |
 | `status:review` | a PR is open | only `crew pr open` |
 | `status:blocked` | a human is needed | an agent via `crew task status <id> blocked --note` |
@@ -47,6 +47,8 @@ The `claimed` and `review` statuses are never set by hand — only through `crew
 
 ## 3. Definition of Ready — before setting `ready`
 
+`crew task status <n> ready` checks the area label and the Given/When/Then criteria itself; the rest of this list is on whoever sets `ready`.
+
 - [ ] The title follows the rules of section 2
 - [ ] The acceptance criteria are verifiable by a test, with no "pretty", "convenient", "fast"
 - [ ] One area (`area:*`), `tier:*` is set
@@ -77,7 +79,7 @@ The `claimed` and `review` statuses are never set by hand — only through `crew
 
 | Role | Does |
 |---|---|
-| Product lead | moves tasks to `ready` per the DoR, holds the scope, cuts the extras, handles `needs-spec` |
+| Product lead | owns the DoR and the scope (reviews what others moved to `ready`), cuts the extras, handles `needs-spec` |
 | Fleet operator | every 30–60 min looks at `crew status`, handles `blocked`, sets/clears `crew:pause` |
 | Planner (agent) | creates tasks and epics at kickoff and on re-slicing |
 | Builder (agent) | takes `ready`, submits a PR, honestly sets `blocked`/`needs-spec` |

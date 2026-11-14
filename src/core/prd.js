@@ -190,6 +190,22 @@ const GWT = [
 /** Acceptance criterion: Given ... When ... Then ... or its Russian equivalent (case-insensitive, order matters). */
 export const isAcceptance = (s) => GWT.some((re) => re.test(String(s).trim()));
 
+/**
+ * Definition of Ready, checked by code so any team member (agent included) may set status:ready, not only a
+ * product lead who may be away or out of usage. -> list of problems (empty = ready). issue: { labels, body }.
+ */
+export function readyProblems(issue) {
+  const labels = (issue?.labels ?? []).map((l) => l.name);
+  const problems = [];
+  if (labels.includes('epic')) problems.push('an epic is not taken by agents: split it into tasks');
+  if (!labels.some((l) => l.startsWith('area:'))) problems.push('no area:* label (whose area is it?)');
+  const criteria = String(issue?.body ?? '').split('\n')
+    .map((l) => l.replace(/^\s*[-*]\s*(\[[ xX]\]\s*)?/, '').trim())
+    .filter((l) => isAcceptance(l) && !/\.\.\./.test(l));
+  if (!criteria.length) problems.push('no acceptance criterion in the body ("- [ ] Given … When … Then …", each verifiable by a test)');
+  return problems;
+}
+
 const riskOf = (t) => t.fields.risk ?? DEFAULT_RISK;
 const skeletonOf = (tasks) => tasks.find((t) => t.fields.skeleton === true) ?? null;
 

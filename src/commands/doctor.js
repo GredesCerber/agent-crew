@@ -1,4 +1,6 @@
 // crew doctor — check that the machine is ready to work.
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ok, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
@@ -9,12 +11,28 @@ const probe = (cmd, args) => {
   return r.code === 0 ? (r.stdout || r.stderr).split('\n')[0] : null;
 };
 
+/**
+ * Is the crew MCP server wired for each host in this project? Agents should call crew through MCP: host permission
+ * checks pre-approve those tools, while shell calls with a full path or node get refused as "external writes".
+ * -> list of problems (empty = fine).
+ */
+export function hostWiring(root, hosts = [], { exists = existsSync, read = (p) => readFileSync(p, 'utf8') } = {}) {
+  const problems = [];
+  const has = (rel, re) => exists(join(root, rel)) && re.test(read(join(root, rel)));
+  if (hosts.includes('claude')) {
+    if (!has('.mcp.json', /"crew"\s*:/)) problems.push('claude: the crew MCP server is not in .mcp.json');
+    if (!has('.claude/settings.json', /mcp__crew/)) problems.push('claude: .claude/settings.json does not pre-approve the crew tools');
+  }
+  if (hosts.includes('codex') && !has('.codex/config.toml', /\[mcp_servers\.crew\]/)) problems.push('codex: the crew MCP server is not in .codex/config.toml');
+  return problems;
+}
+
 export default {
   name: 'doctor',
   summary: 'Check the environment: node, git, gh (auth), claude, codex, project config',
   args: [],
   run() {
-    const { config, path } = loadConfig();
+    const { config, path, root } = loadConfig();
     const winCmd = process.platform === 'win32';
     const tool = (name, args) => probe(name, args) ?? (winCmd ? probe('cmd', ['/c', name, ...args]) : null);
     const items = {
@@ -38,7 +56,9 @@ export default {
     }
     items.crew = LOCAL_VERSION;
     const hint = updateHint();
-    const notes = [hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
+    const wiring = path ? hostWiring(root, config.hosts ?? []) : [];
+    if (wiring.length) items.wiring = wiring;
+    const notes = [...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
     return ok(notes.length ? `Environment OK, but ${notes.join('; ')}` : 'Environment ready', {
       status: notes.length ? 'warning' : 'success',
       artifacts: items,

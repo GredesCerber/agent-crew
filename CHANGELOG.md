@@ -5,6 +5,19 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- `crew pr logs <n>`: the failing step of a red check's CI log (not the post-job cleanup), so agents stop asking humans to copy logs from the browser.
+- `crew task next` returns `kind: resume` first when this agent left a claimed task unfinished on this machine (the session died, e.g. out of usage) — no more "ready but never submitted".
+- `crew doctor` warns when the crew MCP server is not wired for a host (`.mcp.json`, `.claude/settings.json`, `.codex/config.toml`).
+
+### Changed
+- `crew task status <n> ready` is open to anyone, agents included, and checks the Definition of Ready itself (an `area:*` label and a real Given/When/Then criterion); `--force` is the human override. Teams no longer stall when the product lead is away.
+- Claude settings also pre-approve `crew.cmd`, and AGENTS.md tells agents to call crew through the MCP tools, which host permission checks do not refuse.
+
+### Fixed
+- Running crew outside the project folder gives `not_a_repo` with how to `cd` (PowerShell and cmd), instead of a raw "not a git repository" from git or gh.
+- README: on Windows use `crew.cmd` when PowerShell blocks scripts.
+
 ## [0.6.1] — 2026-11-14
 
 ### Added

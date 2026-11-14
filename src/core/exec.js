@@ -22,6 +22,14 @@ export function run(cmd, args = [], { cwd, allowFail = false, input } = {}) {
   }
   const out = { code: res.status ?? -1, stdout: res.stdout?.trim() ?? '', stderr: res.stderr?.trim() ?? '' };
   if (out.code !== 0 && !allowFail) {
+    // git and gh both say this when crew is started outside the project folder (a common slip on Windows terminals).
+    if (/not a git repository/i.test(out.stderr)) {
+      throw new CrewError('not_a_repo', `crew must run inside the project folder (a git clone); here: ${cwd ?? process.cwd()}`, {
+        cause_hint: out.stderr.split('\n')[0],
+        retry: 'cd into the project folder (PowerShell: cd D:\\path\\to\\project, no /d; cmd: cd /d D:\\path\\to\\project), then run the command again',
+        stop_when: 'you do not know where the project is: ask the human',
+      });
+    }
     throw new CrewError('command_failed', `${cmd} ${args.join(' ')} exited with code ${out.code}`, {
       cause_hint: out.stderr.split('\n').slice(0, 5).join(' | '),
       stop_when: 'the error repeats twice',

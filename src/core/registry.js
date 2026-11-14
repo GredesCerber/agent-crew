@@ -33,6 +33,7 @@ import upgrade from '../commands/upgrade.js';
 import askCmds from '../commands/ask.js';
 import mergeReady from '../commands/merge-ready.js';
 import digest from '../commands/digest.js';
+import prLogs from '../commands/pr-logs.js';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { loadConfig } from './config.js';
@@ -48,7 +49,7 @@ export const CWD_ARG = {
 /** Command arguments including the shared ones (cwd). */
 export const argsOf = (cmd) => [...(cmd.args ?? []), ...(cmd.usesCwd && !(cmd.args ?? []).some((a) => a.name === 'cwd') ? [CWD_ARG] : [])];
 
-export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board, upgrade, ...askCmds, mergeReady, digest];
+export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board, upgrade, ...askCmds, mergeReady, digest, prLogs];
 
 /** For MCP: only commands safe for agents (no init/labels/adapters; a human does those). */
 export const agentCommands = commands.filter((c) => c.agent !== false);

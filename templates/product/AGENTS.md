@@ -8,12 +8,13 @@ It is short on purpose. Details are in `agents/skills/*` and `docs/playbooks/*`;
 ## Who we are
 A team of humans and AI agents builds a software project. Tasks live in GitHub Issues.
 Work is coordinated only through `crew` (CLI or the MCP tools `crew_*`). Do not make agreements "in chat".
+Prefer the MCP tools `crew_*`: the project settings pre-approve them, while a shell call (`node …/crew.js`, a full path) may be refused by your host's permission check. Such a refusal comes from the host, not from crew: tell the human once which call was refused and that `crew doctor` shows the fix; do not work around it.
 
 **Order:** brief (`docs/brief.md`) → brief analysis with a demo scenario (skill `crew-brief-analysis`) → plan (`crew-kickoff`) → approval → tasks → code.
 No product code is written before the plan is approved. Priority always goes to what is visible in the demo scenario.
 
 ## The work cycle (mandatory)
-1. `crew task next [--area <area>] [--tier <low|mid|high>]` — what to do. It first hands out work that unblocks the team: `artifacts.kind: fix` (your PR is waiting for you: reviewer changes, red check, conflict with main), `merge` (merge a ready PR) or `review` (review per the skill `crew-review`), then tasks — first from your area (the `crew-team` block in `docs/prd.md`). Do what `next_actions` says.
+1. `crew task next [--area <area>] [--tier <low|mid|high>]` — what to do. It first hands out work that unblocks the team: `artifacts.kind: resume` (your own unfinished task on this machine), `fix` (your PR is waiting for you: reviewer changes, red check — `crew pr logs <pr>` shows why, conflict with main), `merge` (merge a ready PR) or `review` (review per the skill `crew-review`), then tasks — first from your area (the `crew-team` block in `docs/prd.md`). Do what `next_actions` says.
 2. `crew task claim <id>` — take it. Work **only** in the created worktree/branch.
 3. Read the task (`gh issue view <id>`), especially the **acceptance criteria**.
 4. Tests for the acceptance criteria first, then the implementation.
