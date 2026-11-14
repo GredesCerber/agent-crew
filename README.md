@@ -4,7 +4,7 @@
 
 **A vendor-neutral development environment where several coding agents (Claude Code, Codex, more through adapters) and humans work as one team on any project, coordinated through GitHub Issues and Pull Requests.**
 
-People write clear tasks, agents on the team members' own machines take them from a shared queue, write the code, check it and hand it in for review, and the tool makes sure they do not step on each other, do not break `main` and follow one set of rules, whether the agent is Claude or GPT. It was battle-tested at a 4-person hackathon (10-13 Nov 2026, about 160 merged PRs); the hackathon features are an optional [event mode](#event-mode).
+People write clear tasks, agents on the team members' own machines take them from a shared queue, write the code, check it and hand it in for review, and the tool makes sure they do not step on each other, do not break `main` and follow one set of rules, whether the agent is Claude or GPT. It was battle-tested at a 4-person hackathon (10-13 Nov 2026, about 200 merged PRs in the public repo [employee-feedback](https://github.com/GredesCerber/employee-feedback), run with its predecessor `hk`); the hackathon features are an optional [event mode](#event-mode).
 
 ---
 
@@ -73,13 +73,13 @@ What stays manual, because an agent must not or cannot do it: logging in (`gh au
 
 Needs Node.js 22+, git, the [GitHub CLI](https://cli.github.com/) (`gh auth login`) and at least one agent: [Claude Code](https://code.claude.com) or [Codex CLI](https://github.com/openai/codex).
 
-The tool installs straight from the public GitHub repo (no registry, no tokens):
+The tool installs from the public npm registry (no tokens):
 
 ```bash
 npm install -g @gredescerber/agent-crew
 ```
 
-The command is `crew`. Straight from GitHub instead: `npm install -g --allow-git=all github:GredesCerber/agent-crew#v0.6.0` (npm 12+ blocks git installs without the flag).
+The command is `crew`. Straight from GitHub instead: `npm install -g --allow-git=all github:GredesCerber/agent-crew#vX.Y.Z` (the tag of the release you want) (npm 12+ blocks git installs without the flag).
 
 Or clone it and link it (no dependencies; `npm link` only puts `crew` on PATH):
 

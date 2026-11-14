@@ -3,6 +3,7 @@
 // Connects to any MCP client: Claude Code, Codex, Cursor, etc. No dependencies.
 import { claimSlot, REFRESH_MS } from '../core/session.js';
 import { baseAgentId } from '../core/config.js';
+import { LOCAL_VERSION } from '../core/version.js';
 import { createInterface } from 'node:readline';
 import { agentCommands, toolName, inputSchema, validate } from '../core/registry.js';
 import { CrewError, fail } from '../core/output.js';
@@ -34,7 +35,7 @@ export async function handle(msg) {
   switch (method) {
     case 'initialize': {
       const v = SUPPORTED.includes(params?.protocolVersion) ? params.protocolVersion : SUPPORTED[0];
-      return { protocolVersion: v, capabilities: { tools: {} }, serverInfo: { name: 'crew', version: '0.1.0' } };
+      return { protocolVersion: v, capabilities: { tools: {} }, serverInfo: { name: 'crew', version: LOCAL_VERSION } };
     }
     case 'ping':
       return {};

@@ -25,7 +25,7 @@ This file is read by an **agent** (Claude Code or Codex), not by a human. The hu
 
    On Windows, a new terminal is needed after installing so PATH refreshes. Also run `git config --global core.longpaths true`, otherwise git fails on task worktrees and `node_modules`.
 2. Check `gh auth status`. If not logged in, ask the human to run `gh auth login` (GitHub.com -> HTTPS -> log in through the browser) and wait.
-3. Check `crew --version`. If the command is missing, install the tool straight from the public GitHub repo (no registry, no token):
+3. Check `crew --version`. If the command is missing, install the tool from the public npm registry (no token):
 
    ```bash
    npm install -g @gredescerber/agent-crew

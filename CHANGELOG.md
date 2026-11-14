@@ -25,6 +25,7 @@ Fixes from an independent review of 0.6.0–0.7.0.
 - `requires:` finds `npm`/`pnpm`/`yarn` on Windows and treats tools that reject `--version` (go, java) as installed.
 - `crew upgrade --apply` plans against the default branch (its PR lists those changes), never re-adds areas a project removed, counts untracked files as uncommitted work, and returns to your branch (or detached commit) if anything fails.
 - Board and digest: moving a task back to `ready` also ends an old claim; a failed collaborators call is not cached; stale leases use the owner's markers (like the sweep) in both; members with an open PR are not idle.
+- The MCP server reports the real crew version (it said 0.1.0). README: install is from npm (it still said "no registry"), no hard-coded old git tag, and the hackathon claim links the public repo it comes from.
 - Release workflow: the tag must be on `main`, the CHANGELOG section is checked before staging, and npm is pinned.
 
 ## [0.7.0] — 2026-11-14
