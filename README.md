@@ -243,6 +243,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
+| `crew merge-ready [--dry_run]` | merge PRs that are ready (review, green check and crew-guard) but not auto-merged; the scheduled CI job runs it, no agent session needed |
 | `crew task cleanup [--dry_run]` | remove worktrees of closed tasks (only those with no uncommitted changes and with work already saved in main or on GitHub) |
 | `crew task lint` | validate `docs/prd.md` offline: all errors at once (line, id, rule) |
 | `crew task sweep` / `crew task promote` | return expired leases to the queue / move `waiting` tasks to `ready` when their dependencies close (run by CI) |
