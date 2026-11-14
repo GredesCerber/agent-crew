@@ -86,7 +86,9 @@ export function taskOrder(ready = [], { login, area, tier = 'high' } = {}) {
     .map((i) => {
       const owners = (i.assignees ?? []).map((a) => a.login);
       const mine = !!me && owners.some((o) => o.toLowerCase() === me);
-      return { issue: i, owners, mine, rank: mine ? 0 : owners.length ? 2 : 1 };
+      // priority:high / priority:low (set by a human, e.g. on crew board) order tasks inside each group
+      const p = { high: 0, low: 2 }[labelValue(i, 'priority')] ?? 1;
+      return { issue: i, owners, mine, rank: (mine ? 0 : owners.length ? 2 : 1) * 10 + p };
     })
     .sort((a, b) => a.rank - b.rank || a.issue.number - b.issue.number);
 }
