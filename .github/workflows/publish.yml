@@ -8,7 +8,7 @@ on:
     tags: ["v*.*.*"]
 
 permissions:
-  contents: read
+  contents: write # the GitHub Release
   id-token: write # OIDC token for npm trusted publishing and provenance
 
 jobs:
@@ -29,3 +29,11 @@ jobs:
           n="$(node -p "require('./package.json').name")"; v="$(node -p "require('./package.json').version")"
           if npm view "$n@$v" version >/dev/null 2>&1; then echo "$n@$v is already on npm — skipping"; exit 0; fi
           npm publish --provenance --access public
+      - name: GitHub Release with notes from CHANGELOG.md (skipped if it exists)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" 'index($0, "## [" v "]") == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no '## [$v]' section"; exit 1; }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "release exists — skipping"; exit 0; fi
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

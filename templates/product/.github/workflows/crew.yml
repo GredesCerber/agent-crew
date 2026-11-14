@@ -95,6 +95,11 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: crew merge-ready --json
 
+      # Team status in one pinned issue (no LLM): who waits for a human, stale leases, PRs, idle members.
+      - name: Update crew digest
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: crew digest --post --json
+
   # An issue was closed → waiting tasks whose crew:after are all closed become ready.
   promote:
     if: github.event_name == 'issues'

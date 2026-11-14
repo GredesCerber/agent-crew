@@ -12,12 +12,14 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 - `crew ask` / `crew inbox` / `crew answer`: questions between agents through GitHub issues (`crew:question`), routed to the owner of the area; `--human` hands a decision to a human (`needs-human`). Questions and answers show up in `crew task next`. Agents must write to each other in English.
 - A unique agent name per session on one machine (`claude@pc`, `claude@pc-2`, …) taken by the crew MCP server; `crew task claim` pins it into the task worktree.
 - `crew merge-ready`: deterministic merge of ready PRs (review, green `check` and `crew-guard`) that auto-merge will not take; the scheduled sweep job runs it.
+- `crew digest [--post]`: team status without an LLM (needs a human, stale leases, PRs waiting, open questions, idle members). The sweep job keeps it in one pinned issue labelled `crew:digest`, without @-pinging anyone, so nobody has to keep an agent session polling the repo.
 - `crew pr waive <n> --rule <r> --reason "..."`: a recorded human waiver of paperwork rules (`closes`, `agent_trailer`, `not_crew_pr`) for one commit of a PR made outside crew. Protected files, acceptance tests and review cannot be waived.
 - Check steps can declare `requires: ["docker", …]`: skipped locally with a note when the tool is missing, failing in CI.
 - Tasks in the `design` and `research` areas (or with `independent: true`) do not wait for the skeleton; `crew task lint` warns when all of someone's tasks wait for other people's work.
 
 ### Changed
 - `crew pr open` refuses when the branch conflicts with `main` (checked with `git merge-tree`, listing the files) and when the local crew is older than the repo's `CREW_HARNESS`.
+- A `v*` tag also creates the GitHub Release, with notes taken from this file.
 - Legacy `hk:` markers and `hk/<id>-` branches are read as their `crew` equivalents, so migrated projects keep their tasks, leases and reviews.
 
 ### Fixed

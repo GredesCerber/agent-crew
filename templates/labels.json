@@ -18,5 +18,6 @@
   {"name": "epic", "color": "3e4b9e", "description": "a large scenario made of several tasks"},
   {"name": "crew:pause", "color": "000000", "description": "EMERGENCY STOP: all agents stop"},
   {"name": "crew:question", "color": "0052cc", "description": "a question from an agent to the owner of an area (crew ask); answered with crew answer"},
-  {"name": "needs-human", "color": "e99695", "description": "only a human can decide this (scope, contract, product choice)"}
+  {"name": "needs-human", "color": "e99695", "description": "only a human can decide this (scope, contract, product choice)"},
+  {"name": "crew:digest", "color": "bfdadc", "description": "the pinned team status issue, rewritten by crew digest"}
 ]

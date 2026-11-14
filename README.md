@@ -245,6 +245,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | human only: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit of a PR made outside crew; the review is still required |
 | `crew merge-ready [--dry_run]` | merge PRs that are ready (review, green check and crew-guard) but not auto-merged; the scheduled CI job runs it, no agent session needed |
+| `crew digest [--post]` | team status without an LLM: what needs a human, stale leases, PRs waiting, open questions, idle members; the scheduled CI job keeps it in a pinned issue |
 | `crew task cleanup [--dry_run]` | remove worktrees of closed tasks (only those with no uncommitted changes and with work already saved in main or on GitHub) |
 | `crew task lint` | validate `docs/prd.md` offline: all errors at once (line, id, rule) |
 | `crew task sweep` / `crew task promote` | return expired leases to the queue / move `waiting` tasks to `ready` when their dependencies close (run by CI) |
