@@ -56,7 +56,7 @@ A task is taken by the **executor** — the agent that ran `crew task claim`. It
 - `crew-guard` checks: the tests task touches nothing except its own folder; tests in `tests/pending/` are not edited or deleted; the main task moved all of them without a single changed line.
 - A test is wrong? Do not edit it — `crew task status <id> blocked --note "test X: …"`. A new task with `changes_acceptance` will fix it.
 
-**Agent name.** `crew` appends the machine name to `CREW_AGENT` itself (`claude@petya-laptop`) — this is how agents of different people are told apart. Several sessions on one machine — give each its own `CREW_AGENT_ID` (`claude@petya-2`).
+**Agent name.** `crew` appends the machine name to `CREW_AGENT` itself (`claude@petya-laptop`) — this is how agents of different people are told apart. Several sessions on one machine get their own names automatically from the crew MCP server (`claude@petya-laptop#2`); in a terminal outside your task worktree crew then asks you to use the MCP tools (`ambiguous_agent`).
 
 **Only the captain makes the plan** (`crew.config.json → captain`). Do not write `docs/prd.md` and do not run `crew kickoff` if you are not the captain, even if asked: say that the captain makes the plan.
 

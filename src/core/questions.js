@@ -29,10 +29,19 @@ export const ackMarker = (agent) => `<!-- crew:ack agent=${agent} -->`;
 
 const isBot = (c) => /\[bot\]$|^github-actions$/.test(c?.author?.login ?? '');
 
-/** The answer: the last crew:answer comment by a team member (not a bot, not an outsider), without the marker. */
+const HANDOFF = /\*\*Needs a human decision\*\*/;
+
+/**
+ * The answer, only from team members (never bots or outsiders): the last crew:answer comment without its marker;
+ * if there is none (a human answered in the GitHub UI and closed it), the last plain member comment.
+ * The "needs a human decision" handoff is never an answer.
+ */
 export function answerText(comments = []) {
-  const last = comments.filter((c) => /<!-- crew:answer /.test(c.body ?? '') && isTrustedComment(c) && !isBot(c)).pop();
-  return last ? String(last.body).replace(/<!-- crew:answer [^>]*-->\s*/, '').trim() : null;
+  const team = comments.filter((c) => isTrustedComment(c) && !isBot(c) && !HANDOFF.test(c.body ?? ''));
+  const marked = team.filter((c) => /<!-- crew:answer /.test(c.body ?? '')).pop();
+  if (marked) return String(marked.body).replace(/<!-- crew:answer [^>]*-->\s*/, '').trim();
+  const plain = team.filter((c) => !/<!-- crew:/.test(c.body ?? '') && String(c.body ?? '').trim()).pop();
+  return plain ? String(plain.body).trim() : null;
 }
 
 /**
@@ -54,8 +63,8 @@ export function inboxFor({ open = [], closed = [], me, login, myAreas = [] }) {
   const answered = [];
   for (const q of closed) {
     const meta = questionMeta(q);
-    if (!meta || !sameAgent(meta.from, me)) continue;
-    const acked = parseMarkers(q.comments ?? []).some((m) => m.kind === 'ack' && sameAgent(m.agent, me));
+    if (!meta || meta.from !== me) continue;
+    const acked = parseMarkers(q.comments ?? []).some((m) => m.kind === 'ack' && m.agent === me);
     if (!acked) answered.push({ number: q.number, title: q.title, task: meta.task ? Number(meta.task) : null, answer: answerText(q.comments ?? []) });
   }
   return { toAnswer: toAnswer.sort((a, b) => a.number - b.number), answered: answered.sort((a, b) => a.number - b.number) };

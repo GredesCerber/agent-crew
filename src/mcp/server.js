@@ -2,7 +2,7 @@
 // Exposes crew commands as tools: crew_task_next, crew_task_claim, crew_check, ...
 // Connects to any MCP client: Claude Code, Codex, Cursor, etc. No dependencies.
 import { claimSlot, REFRESH_MS } from '../core/session.js';
-import { agentId } from '../core/config.js';
+import { baseAgentId } from '../core/config.js';
 import { createInterface } from 'node:readline';
 import { agentCommands, toolName, inputSchema, validate } from '../core/registry.js';
 import { CrewError, fail } from '../core/output.js';
@@ -53,9 +53,9 @@ export async function handle(msg) {
 }
 
 export function startServer() {
-  // One MCP server per agent session: take a free name slot (claude@pc, claude@pc-2, ...) unless CREW_AGENT_ID is set.
+  // One MCP server per agent session: take a free name slot (claude@pc, claude@pc#2, ...) unless CREW_AGENT_ID is set.
   if (!process.env.CREW_AGENT_ID) {
-    const slot = claimSlot(agentId());
+    const slot = claimSlot(baseAgentId()); // the raw base: never a live sibling's name (that would make claude@pc#2#2)
     if (slot) {
       process.env.CREW_AGENT_ID = slot.id;
       setInterval(slot.refresh, REFRESH_MS).unref(); // a live session keeps its lock fresh; a crashed one goes stale

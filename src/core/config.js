@@ -69,7 +69,7 @@ export const machineName = () =>
  * CREW_AGENT sets vendor/model (adapters set it; for all Claude agents it is just "claude"),
  * the machine is appended automatically, otherwise three Claudes on three laptops would be one agent
  * (another agent's lease would be taken for your own, and review by "another agent" would be impossible).
- * For several sessions on one machine, give each its own CREW_AGENT_ID (claude@petya-2).
+ * Several sessions on one machine get their own names from the crew MCP server (claude@petya, claude@petya#2).
  */
 export function agentId(env = process.env) {
   if (env.CREW_AGENT_ID) return env.CREW_AGENT_ID;
@@ -78,11 +78,16 @@ export function agentId(env = process.env) {
     const pinned = pinnedId();
     if (pinned) return pinned;
   }
-  const raw = env.CREW_AGENT || 'human';
-  const base = raw.includes('@') ? raw : `${raw}@${machineName()}`;
+  const base = baseAgentId(env);
   // A CLI call outside a pinned worktree: the only live session on this machine is us; with several, see identityProblem.
   if (env === process.env) return cliIdentity(base).id ?? base;
   return base;
+}
+
+/** vendor[/model]@machine from CREW_AGENT, without any session number: what a new session claims a slot for. */
+export function baseAgentId(env = process.env) {
+  const raw = env.CREW_AGENT || 'human';
+  return raw.includes('@') ? raw : `${raw}@${machineName()}`;
 }
 
 /**
@@ -91,8 +96,6 @@ export function agentId(env = process.env) {
  */
 export function identityProblem(env = process.env) {
   if (env.CREW_AGENT_ID || pinnedId()) return null;
-  const raw = env.CREW_AGENT || 'human';
-  if (raw === 'human') return null;
-  const base = raw.includes('@') ? raw : `${raw}@${machineName()}`;
-  return cliIdentity(base).ambiguous ?? null;
+  if ((env.CREW_AGENT || 'human') === 'human') return null;
+  return cliIdentity(baseAgentId(env)).ambiguous ?? null;
 }

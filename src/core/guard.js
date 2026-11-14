@@ -130,7 +130,7 @@ export function fileViolations(files = [], { allowedAcceptance = [] } = {}) {
  * Review markers: <!-- crew:review verdict=approve|changes agent=<id> sha=<commit> -->.
  * The last verdict of each agent is taken; only verdicts on the current head count.
  * authors: every agent that wrote this PR (the **Agent:** line and the commits' Agent: trailers). Sibling sessions
- * of an author (claude@pc-2 for claude@pc) are the author too. With no known author at all (a PR made outside crew),
+ * of an author (claude@pc#2 for claude@pc) are the author too. With no known author at all (a PR made outside crew),
  * a review from the GitHub account that opened the PR does not count either.
  */
 export function reviewState(comments = [], { headSha, author, authors = [], prLogin = null, policy, prCreatedAt, now = Date.now() }) {
@@ -183,9 +183,10 @@ export function evaluateGuard({ files = [], body = '', issueBody = '', issueTrus
   const issue = linkedIssue(body);
   if (!issue) problems.push({ rule: 'closes', message: 'the PR description has no "Closes #N": a PR must close a task' });
   // The client-side version gate is missing from the very versions it targets, so CI checks the stamp too.
+  // A crew PR (it has the **Agent:** line) with no stamp was opened by a crew older than the stamp itself.
   const used = prCrewVersion(body);
-  if (used && requiredVersion && older(used, requiredVersion)) {
-    problems.push({ rule: 'outdated_crew', message: `opened with agent-crew ${used}, the repo pins ${requiredVersion}: update crew, then crew pr open again` });
+  if (requiredVersion && authorAgent(body) && (!used || older(used, requiredVersion))) {
+    problems.push({ rule: 'outdated_crew', message: `opened with agent-crew ${used ?? 'older than 0.7.1'}, the repo pins ${requiredVersion}: update crew, then crew pr open (it refreshes the stamp)` });
   }
 
   const noAgent = commits.filter((c) => !String(c.agent ?? '').trim()).map((c) => c.sha);

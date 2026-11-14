@@ -117,19 +117,22 @@ export default {
     };
     let plan = planUpgrade(repo);
     const branch = `crew/upgrade-${LOCAL_VERSION}`;
-    const lines = summarize(plan.ops);
+    let lines = summarize(plan.ops);
     if (!apply) {
       return ok(plan.ops.length ? `crew upgrade to ${LOCAL_VERSION}: ${plan.ops.length} changes (dry run)${plan.legacy ? ', migrating from hk' : ''}` : `Already up to date with agent-crew ${LOCAL_VERSION}`, {
         artifacts: { version: LOCAL_VERSION, legacy: plan.legacy, changes: lines, config_added: plan.config_added },
         next_actions: plan.ops.length ? ['crew upgrade --apply (creates a branch and a PR; agent configs are regenerated too)'] : ['nothing to do'],
       });
     }
-    if (git(['status', '--porcelain'], { cwd: root }).stdout.trim()) {
+    if (git(['status', '--porcelain', '--untracked-files=all'], { cwd: root }).stdout.trim()) {
       return fail('dirty_tree', 'Uncommitted changes in the project', { retry: 'commit or stash them, then crew upgrade --apply' });
     }
     git(['fetch', '--quiet', 'origin'], { cwd: root, allowFail: true });
     const base = (gh(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd: root, allowFail: true }).stdout || '').trim() || 'main';
-    const from = (git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, allowFail: true }).stdout || '').trim();
+    // where to return on failure: the branch, or the commit itself when HEAD is detached
+    const branchName = (git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, allowFail: true }).stdout || '').trim();
+    const from = branchName && branchName !== 'HEAD' ? branchName : (git(['rev-parse', 'HEAD'], { cwd: root, allowFail: true }).stdout || '').trim();
+    const detached = branchName === 'HEAD';
     const sw = git(['switch', '-c', branch, `origin/${base}`], { cwd: root, allowFail: true });
     if (sw.code !== 0) return fail('branch_exists', `Could not create ${branch}`, { cause_hint: (sw.stderr || sw.stdout).split('\n')[0], retry: `git branch -D ${branch} (if it is a leftover), then crew upgrade --apply` });
     // The upgrade lands on the default branch, so plan against it, not against whatever was checked out.
@@ -137,10 +140,11 @@ export default {
     const back = () => {
       git(['restore', '--staged', '--worktree', '.'], { cwd: root, allowFail: true });
       git(['clean', '-fdq'], { cwd: root, allowFail: true });
-      if (from && from !== 'HEAD') git(['switch', from], { cwd: root, allowFail: true });
+      if (from) git(detached ? ['switch', '--detach', from] : ['switch', from], { cwd: root, allowFail: true });
       git(['branch', '-D', branch], { cwd: root, allowFail: true });
     };
     plan = planUpgrade(repo);
+    lines = summarize(plan.ops); // the PR describes what is applied on the base, not what the old checkout looked like
     if (!plan.ops.length) { back(); return ok(`Already up to date with agent-crew ${LOCAL_VERSION}`); }
     try {
     for (const o of plan.ops) {

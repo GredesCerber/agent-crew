@@ -8,8 +8,8 @@ import { HARNESS_ROOT, identityProblem } from '../src/core/config.js';
 import { recordCommand } from '../src/core/metrics.js';
 
 const argv = process.argv.slice(2);
-// Commands that act under the agent's name: they need to know exactly which session is calling.
-const ACTS_AS_AGENT = new Set(['task next', 'task claim', 'task status', 'task release', 'task heartbeat', 'commit', 'pr open', 'pr review', 'ask', 'answer', 'inbox']);
+// Every command that writes under the agent's name must know exactly which session is calling; these do not.
+const NO_IDENTITY = new Set(['status', 'doctor', 'board', 'digest', 'pr logs', 'task lint', 'metrics', 'eval', 'labels sync', 'github setup', 'init', 'up', 'adapters build', 'upgrade', 'guard', 'merge-ready', 'task sweep', 'task promote', 'task cleanup', 'worker', 'compliance check', 'compliance disclosure', 'shots']);
 const json = argv.includes('--json') || process.env.CREW_JSON === '1' || !process.stdout.isTTY;
 const words = argv.filter((a) => a !== '--json');
 
@@ -46,7 +46,7 @@ async function main() {
   const err = validate(cmd, opts);
   const started = Date.now();
   let result;
-  const ambiguous = !err && ACTS_AS_AGENT.has(cmd.name) ? identityProblem() : null;
+  const ambiguous = !err && !NO_IDENTITY.has(cmd.name) ? identityProblem() : null;
   if (err) result = fail('bad_input', err, { retry: 'crew help' });
   else if (ambiguous) {
     result = fail('ambiguous_agent', `Several agent sessions are running on this machine (${ambiguous.join(', ')}); this terminal call cannot tell which one it is`, {

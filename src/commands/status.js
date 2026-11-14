@@ -12,7 +12,9 @@ export function prLines(prs, { config, now = Date.now() } = {}) {
     x.kind === 'fix'
       ? `PR #${x.number} ${x.title} — waiting on the author: ${x.reason}${x.age > 30 ? ' ⚠' : ''}`
       : x.kind === 'merge'
-        ? `PR #${x.number} ${x.title} — ready (${x.risk}): merge it (gh pr merge ${x.number} --merge --delete-branch)`
+        ? `PR #${x.number} ${x.title} — ready (${x.risk}): merge it (gh pr merge ${x.number} --merge --delete-branch${x.sha ? ` --match-head-commit ${x.sha}` : ''})`
+        : x.kind === 'checks'
+          ? `PR #${x.number} ${x.title} — approved, waiting for checks`
         : `PR #${x.number} ${x.title} — waiting for review ${x.age} min (${x.have}/${x.need})${x.age > 30 ? ' ⚠' : ''}`);
 }
 

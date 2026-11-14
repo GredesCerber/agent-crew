@@ -46,17 +46,19 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     // PR from a fork (public repo): its text and diff are foreign, so we do not hand it to agents for review (prompt injection).
     if (pr.isCrossRepository) continue;
     const author = authorAgent(pr.body);
-    const mine = !!author && sameAgent(author, me);
+    // mine (exact name) decides who gets the fix; own (any session of the same agent) decides who may not review it
+    const mine = !!author && author === me;
+    const own = !!author && sameAgent(author, me);
     const risk = riskOfPr(pr);
     const need = risk === 'high' ? policy.approvals_high : policy.approvals;
-    const rs = reviewState(pr.comments ?? [], { headSha: pr.headRefOid, author, policy, prCreatedAt: pr.createdAt, now });
+    const rs = reviewState(pr.comments ?? [], { headSha: pr.headRefOid, author, prLogin: pr.author?.login ?? null, policy, prCreatedAt: pr.createdAt, now });
     const age = Math.max(0, Math.round((now - Date.parse(pr.createdAt ?? '')) / 60000)) || 0;
     const checks = prChecks(pr);
     const conflict = String(pr.mergeable ?? '').toUpperCase() === 'CONFLICTING';
     // PR is waiting for its author: reviewer requests changes, red check or conflict with main. The author fixes it before new tasks.
     // A red crew-guard means a rule is broken (protected files, acceptance tests, paperwork): only the author can fix it.
     const fixWhy = rs.changes.length ? `reviewer requests changes (${rs.changes.join(', ')})` : conflict ? 'conflict with main'
-      : checks.check === 'failure' ? 'red check' : checks.guard === 'failure' ? `crew-guard: ${checks.guardText || 'a rule is broken'}` : null;
+      : checks.check === 'failure' ? 'red check' : checks.guard === 'failure' ? `crew-guard: ${checks.guardText || `a rule is broken (crew guard --pr ${pr.number} shows which)`}` : null;
     if (fixWhy) {
       out.push({ kind: 'fix', number: pr.number, title: pr.title, issue: linkedIssue(pr.body), risk, age, mine, reason: fixWhy, reviewable: false });
       continue;
@@ -74,7 +76,7 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     const counts = policy.require === 'other-agent' || rs.fallback || !author || vendorOf(author) !== vendorOf(me);
     const authorIsReviewer = reviewers.some((r) => lc(r) === lc(pr.author?.login));
     const turn = isReviewer || !reviewers.length || authorIsReviewer || age >= policy.fallback_minutes;
-    const why_not = mine ? 'own PR' : reviewedHead ? 'already reviewed this commit' : !counts ? 'needs a reviewer from another vendor' : !turn ? `the team reviewer goes first (${reviewers.join(', ')})` : null;
+    const why_not = own ? 'own PR' : reviewedHead ? 'already reviewed this commit' : !counts ? 'needs a reviewer from another vendor' : !turn ? `the team reviewer goes first (${reviewers.join(', ')})` : null;
     out.push({ kind: 'review', number: pr.number, title: pr.title, risk, age, need, have: rs.approvals.length, reviewable: !why_not, why_not });
   }
   const rank = (x) => ({ fix: 0, merge: 10, review: 20, checks: 30 }[x.kind] ?? 40) + (x.risk === 'high' ? 0 : 1);

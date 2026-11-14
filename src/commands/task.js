@@ -151,7 +151,7 @@ const next = {
           next_actions: [
             `go back to the worktree of task #${id} (lease lost — crew task claim ${id})`,
             fix.reason === 'conflict with main' ? 'git fetch origin && git merge origin/main — resolve the conflict in your area'
-              : /^(red check|crew-guard)/.test(fix.reason) ? `crew pr logs ${fix.number} — why it is red` : `gh pr view ${fix.number} --comments — what the reviewer asks for`,
+              : /^red check/.test(fix.reason) ? `crew pr logs ${fix.number} — why it is red` : /^crew-guard/.test(fix.reason) ? `crew guard --pr ${fix.number} — which rule is broken` : `gh pr view ${fix.number} --comments — what the reviewer asks for`,
             'crew commit -m "fix: ..." → crew check → crew pr open (pushes to the same PR)',
             'crew task next',
           ],

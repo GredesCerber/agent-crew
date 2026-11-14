@@ -64,8 +64,8 @@ export default {
       commits,
       body: view.body,
       issueBody: issue?.body ?? '',
-      // only members can label issues: a labelled issue is a team task, not an outsider's text
-      issueTrusted: (issue?.labels ?? []).some((l) => /^(status|area):/.test(l.name)),
+      // the task text may relax the acceptance rule only if a team member wrote the issue (templates label anyone's issue)
+      issueTrusted: issueNo ? ['OWNER', 'MEMBER', 'COLLABORATOR'].includes((gh(['api', `repos/{owner}/{repo}/issues/${issueNo}`, '--jq', '.author_association'], { cwd: root, allowFail: true }).stdout || '').trim()) : false,
       prLogin: view.author?.login ?? null,
       requiredVersion: pinnedVersion(process.env.CREW_HARNESS ?? ''),
       comments: view.comments ?? [],
@@ -86,7 +86,7 @@ export default {
     if (res.state === 'failure') {
       return fail('guard_failed', `PR #${pr}: ${res.problems.map((p) => p.message).join('; ')}`, {
         cause_hint: res.problems[0].message,
-        retry: res.problems.some((p) => p.rule === 'agent_trailer') ? 'tell the team captain about commits without Agent; make new commits via crew commit' : res.problems.some((p) => p.rule === 'changes_requested') ? 'apply the reviewer changes, crew check, crew commit, git push' : 'remove the forbidden changes from the PR, crew commit, git push',
+        retry: res.problems.some((p) => p.rule === 'outdated_crew') ? 'update crew to the version the repo pins (npm i -g "<CREW_HARNESS>"), restart the agent session, then crew pr open: it refreshes the version stamp of this PR' : res.problems.some((p) => p.rule === 'agent_trailer') ? 'tell the team captain about commits without Agent; make new commits via crew commit' : res.problems.some((p) => p.rule === 'changes_requested') ? 'apply the reviewer changes, crew check, crew commit, git push' : 'remove the forbidden changes from the PR, crew commit, git push',
         stop_when: res.problems.some((p) => p.rule === 'agent_trailer') ? 'agents do not rewrite git history — a human agrees on the fix' : 'cannot be done without changing the rules or other people tests → crew task status <id> blocked --note "need a task that changes acceptance"',
         artifacts,
       });

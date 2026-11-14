@@ -12,7 +12,7 @@ export const BOARD_STATUSES = ['ready', 'blocked', 'needs-spec', 'waiting'];
 
 const prio = (i) => labelValue(i, 'priority') ?? 'normal';
 
-export function boardModel({ issues = [], prs = [], members = [], questions = [], team = null, config = {}, now = Date.now() } = {}) {
+export function boardModel({ issues = [], prs = [], members = [], questions = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
   const columns = Object.fromEntries(COLUMNS.map((c) => [c, []]));
   const other = [];
   for (const i of issues) {
@@ -37,7 +37,7 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
     kind: x.kind, number: x.number, title: x.title, risk: x.risk, age_min: x.age, reason: x.reason ?? null, have: x.have ?? null, need: x.need ?? null,
   }));
   // Captain panel: the same status crew digest posts to the pinned issue.
-  const digest = digestModel({ issues, prs, questions, team, config, now });
+  const digest = digestModel({ issues, prs, questions, team, claimComments, config, now });
   return { columns, untracked: other.length, prs: queue, digest, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
 }
 

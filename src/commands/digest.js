@@ -22,6 +22,9 @@ export function teamOf(root) {
   return existsSync(p) ? parsePrd(readFileSync(p, 'utf8')).team : null;
 }
 
+/** Owner markers of claimed tasks ({ number: comments }), so "stale" means what the sweep means. */
+export const claimCommentsOf = (root) => Object.fromEntries((ghJson(['issue', 'list', '--state', 'open', '--label', 'status:claimed', '--limit', '100', '--json', 'number,comments'], { cwd: root, allowFail: true }) ?? []).map((i) => [i.number, i.comments ?? []]));
+
 /** Live data through gh (tests pass deps.data instead). */
 export function githubData(root) {
   return {
@@ -30,7 +33,7 @@ export function githubData(root) {
     questions: openQuestions(root),
     team: teamOf(root),
     // owner markers of claimed tasks, so "stale" means what the sweep means
-    claimComments: Object.fromEntries((ghJson(['issue', 'list', '--state', 'open', '--label', 'status:claimed', '--limit', '100', '--json', 'number,comments'], { cwd: root, allowFail: true }) ?? []).map((i) => [i.number, i.comments ?? []])),
+    claimComments: claimCommentsOf(root),
   };
 }
 

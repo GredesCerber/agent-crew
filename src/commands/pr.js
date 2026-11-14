@@ -170,9 +170,14 @@ export const prOpen = {
     }
 
     // A PR for this branch is already open (rework after review) — we only push and do not create a second PR.
-    const existing = ghJson(['pr', 'view', branch, '--json', 'url,state,number'], { cwd: root, allowFail: true });
+    const existing = ghJson(['pr', 'view', branch, '--json', 'url,state,number,body'], { cwd: root, allowFail: true });
     git(['push', '-u', 'origin', branch], { cwd: root });
     if (existing?.state === 'OPEN') {
+      // Re-stamp the crew version (crew guard fails PRs made with a crew older than the repo pins).
+      const stamp = `<!-- crew:pr version=${LOCAL_VERSION} -->`;
+      const oldBody = String(existing.body ?? '');
+      const newBody = /<!-- crew:pr version=[^>]*-->/.test(oldBody) ? oldBody.replace(/<!-- crew:pr version=[^>]*-->/, stamp) : `${oldBody.trimEnd()}\n${stamp}\n`;
+      if (newBody !== oldBody) gh(['pr', 'edit', String(existing.number), '--body-file', '-'], { cwd: root, allowFail: true, input: newBody });
       setStatus(id, 'review', { from: ['claimed', 'blocked'] });
       return ok(`PR updated: ${existing.url} (commit ${sha.slice(0, 7)}) — a new review of this commit is needed`, {
         artifacts: { pr: existing.url, issue: id, branch, updated: true, sha },
