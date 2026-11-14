@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ok, fail } from '../core/output.js';
-import { runShell, git, currentBranch } from '../core/exec.js';
+import { runShell, run, git, currentBranch } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import { checkLease } from '../core/lease.js';
 
@@ -31,6 +31,12 @@ export function countTests(dir, pattern = DEFAULT_TESTS_PATTERN) {
  * Whether the run counts for crew pr open: all config steps passed (or were skipped by the rules).
  * A partial run (--only) does not count as green.
  */
+/** Is a command-line tool installed (docker, uv, ...)? Only plain names are checked. */
+export function hasTool(name) {
+  if (!/^[\w.-]+$/.test(String(name))) return false;
+  return run(name, ['--version'], { allowFail: true }).code === 0;
+}
+
 export function isFullRun(results = [], steps = []) {
   const names = new Set(results.map((r) => r.name));
   return steps.length > 0 && steps.every((s) => names.has(s.name)) && results.every((r) => r.ok);
@@ -67,6 +73,18 @@ export default {
       // when_exists: the step only makes sense if that part of the project already exists (web/package.json etc.)
       if (s.when_exists && !existsSync(join(root, s.when_exists))) {
         results.push({ name: s.name, ok: true, skipped: true, exit: 0, excerpt: '' });
+        continue;
+      }
+      // requires: tools the step needs (e.g. docker). At the hackathon a Docker test in main blocked every
+      // member without Docker. Locally a missing tool skips the step with a note; in CI (CI=true) it fails.
+      const missing = (s.requires ?? []).filter((t) => !(deps.hasTool ?? hasTool)(t));
+      if (missing.length) {
+        if (process.env.CI) {
+          results.push({ name: s.name, ok: false, exit: -1, missing_tools: missing, excerpt: `CI is missing required tools: ${missing.join(', ')}` });
+          if (s.stop_on_fail !== false) break;
+        } else {
+          results.push({ name: s.name, ok: true, skipped: true, missing_tools: missing, exit: 0, excerpt: '' });
+        }
         continue;
       }
       // tests_dir: a mandatory set (acceptance tests). While there are no tests (the very start) — skipped;
@@ -106,7 +124,7 @@ export default {
 
     if (passedSteps) {
       const ran = results.filter((r) => !r.skipped).map((r) => r.name);
-      const skipped = results.filter((r) => r.skipped).map((r) => (r.no_tests ? `${r.name} (no tests yet)` : r.name));
+      const skipped = results.filter((r) => r.skipped).map((r) => (r.no_tests ? `${r.name} (no tests yet)` : r.missing_tools ? `${r.name} (needs ${r.missing_tools.join(', ')}: skipped here, CI runs it)` : r.name));
       const noTests = results.filter((r) => r.no_tests).map((r) => r.name);
       return ok(`${partial ? `Step ${only} is green (partial run — crew pr open needs a full crew check)` : 'All checks green'} (${ran.join(', ') || 'nothing to check'}${skipped.length ? `; skipped: ${skipped.join(', ')}` : ''})`, {
         status: partial || leaseNote.length ? 'warning' : 'success',

@@ -82,3 +82,27 @@ test('crew upgrade is a human command (not exposed to agents over MCP)', () => {
   assert.ok(!agentCommands.some((c) => c === upgrade));
   assert.ok(!agentCommands.some((c) => c.name === 'board'));
 });
+
+test('check: a step that requires a missing tool is skipped locally with a note and fails in CI', async () => {
+  const { default: check } = await import('../src/commands/check.js');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { git } = await import('../src/core/exec.js');
+  const root = mkdtempSync(join(tmpdir(), 'crew-req-'));
+  git(['init', '-q', '-b', 'main'], { cwd: root });
+  writeFileSync(join(root, 'crew.config.json'), JSON.stringify({ check: [{ name: 'docker-e2e', run: 'node -e "process.exit(1)"', requires: ['docker'] }, { name: 'unit', run: 'node -e "0"' }] }));
+  const deps = { hasTool: () => false, checkLease: () => ({ state: 'ok' }) };
+  const prevCI = process.env.CI;
+  delete process.env.CI;
+  try {
+    const local = check.run({ cwd: root }, deps);
+    assert.equal(local.status, 'success', JSON.stringify(local));
+    assert.match(JSON.stringify(local), /needs docker: skipped here, CI runs it/);
+    process.env.CI = 'true';
+    const ci = check.run({ cwd: root }, deps);
+    assert.equal(ci.status, 'error');
+  } finally {
+    if (prevCI === undefined) delete process.env.CI; else process.env.CI = prevCI;
+  }
+});
