@@ -84,5 +84,14 @@ test('N8: a human answer in the GitHub UI reaches the agent; the hand-off note n
   assert.equal(answerText([handoff, member('Use Postgres, keep SQLite for tests.', 'captain')]), 'Use Postgres, keep SQLite for tests.');
   assert.equal(answerText([handoff]), null);
   assert.equal(answerText([{ body: 'spam', authorAssociation: 'NONE', author: { login: 'x' } }]), null);
-  assert.equal(answerText([member('<!-- crew:answer agent=codex@pc -->\nfield v2'), member('thanks!', 'captain')]), 'field v2', 'a marked answer wins');
+  assert.equal(answerText([member('<!-- crew:answer agent=codex@pc -->\nfield v2'), member('Correction: v3.', 'captain')]), 'field v2\n\nCorrection: v3.', 'a later human correction is kept');
+});
+
+test('F2: a quote reply to the hand-off is an answer; several human replies are joined, not just the last', () => {
+  const handoff = member('<!-- crew:answer agent=codex@pc -->\n**Needs a human decision** (`codex@pc`): which db?');
+  const quote = member('> **Needs a human decision** (`codex@pc`): which db?\n\nPostgres.', 'captain');
+  assert.match(answerText([handoff, quote]), /Postgres\./);
+  assert.equal(answerText([handoff, member('Postgres.', 'captain'), member('thanks!', 'captain')]), 'Postgres.\n\nthanks!');
+  assert.equal(answerText([member('old note before the hand-off'), handoff, member('Postgres.', 'captain')]), 'Postgres.', 'only after the last hand-off');
+  assert.ok(answerText([member('x'.repeat(10_000))]).length <= 4000, 'bounded');
 });

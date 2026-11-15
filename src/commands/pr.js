@@ -177,11 +177,14 @@ export const prOpen = {
       const stamp = `<!-- crew:pr version=${LOCAL_VERSION} -->`;
       const oldBody = String(existing.body ?? '');
       const newBody = /<!-- crew:pr version=[^>]*-->/.test(oldBody) ? oldBody.replace(/<!-- crew:pr version=[^>]*-->/, stamp) : `${oldBody.trimEnd()}\n${stamp}\n`;
-      if (newBody !== oldBody) gh(['pr', 'edit', String(existing.number), '--body-file', '-'], { cwd: root, allowFail: true, input: newBody });
+      const restamp = newBody !== oldBody ? gh(['pr', 'edit', String(existing.number), '--body-file', '-'], { cwd: root, allowFail: true, input: newBody }) : { code: 0 };
       setStatus(id, 'review', { from: ['claimed', 'blocked'] });
+      // a failed re-stamp leaves the PR red (outdated_crew) although everything else worked: say so
+      const stampNote = restamp.code === 0 ? [] : [`the crew version stamp of PR #${existing.number} was not updated (${(restamp.stderr || restamp.stdout || 'gh pr edit failed').split('\n')[0]}): run crew pr open again; if crew-guard says outdated_crew, tell the human`];
       return ok(`PR updated: ${existing.url} (commit ${sha.slice(0, 7)}) — a new review of this commit is needed`, {
-        artifacts: { pr: existing.url, issue: id, branch, updated: true, sha },
-        next_actions: [`reviewer: crew pr review ${existing.number} --verdict approve|changes (old approvals do not apply to the new commit)`, 'crew task next'],
+        status: stampNote.length ? 'warning' : 'success',
+        artifacts: { pr: existing.url, issue: id, branch, updated: true, sha, stamped: restamp.code === 0 },
+        next_actions: [...stampNote, `reviewer: crew pr review ${existing.number} --verdict approve|changes (old approvals do not apply to the new commit)`, 'crew task next'],
       });
     }
     const body = [

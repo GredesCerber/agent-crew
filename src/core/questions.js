@@ -31,17 +31,28 @@ const isBot = (c) => /\[bot\]$|^github-actions$/.test(c?.author?.login ?? '');
 
 const HANDOFF = /\*\*Needs a human decision\*\*/;
 
+const MAX_ANSWER = 4000;
+
 /**
- * The answer, only from team members (never bots or outsiders): the last crew:answer comment without its marker;
- * if there is none (a human answered in the GitHub UI and closed it), the last plain member comment.
- * The "needs a human decision" handoff is never an answer.
+ * The answer, only from team members (never bots or outsiders), as one text:
+ * - the last crew:answer comment (marker removed) plus the plain member comments after it (a later correction);
+ * - with no such answer (a human answered in the GitHub UI and closed it): all plain member comments after the
+ *   last "needs a human decision" hand-off, not just the last one (that may be a "thanks!").
+ * The hand-off is recognized only on crew's own marker comments, so a human quoting it is still an answer.
  */
 export function answerText(comments = []) {
-  const team = comments.filter((c) => isTrustedComment(c) && !isBot(c) && !HANDOFF.test(c.body ?? ''));
-  const marked = team.filter((c) => /<!-- crew:answer /.test(c.body ?? '')).pop();
-  if (marked) return String(marked.body).replace(/<!-- crew:answer [^>]*-->\s*/, '').trim();
-  const plain = team.filter((c) => !/<!-- crew:/.test(c.body ?? '') && String(c.body ?? '').trim()).pop();
-  return plain ? String(plain.body).trim() : null;
+  const team = comments.filter((c) => isTrustedComment(c) && !isBot(c));
+  const body = (c) => String(c.body ?? '');
+  const isMarker = (c) => /<!-- crew:answer /.test(body(c));
+  const isHandoff = (c) => isMarker(c) && HANDOFF.test(body(c));
+  const isPlain = (c) => !/<!-- crew:/.test(body(c)) && body(c).trim();
+  const lastAnswer = team.findLastIndex((c) => isMarker(c) && !isHandoff(c));
+  const from = lastAnswer >= 0 ? lastAnswer + 1 : team.findLastIndex(isHandoff) + 1;
+  const parts = [
+    ...(lastAnswer >= 0 ? [body(team[lastAnswer]).replace(/<!-- crew:answer [^>]*-->\s*/, '').trim()] : []),
+    ...team.slice(from).filter(isPlain).map((c) => body(c).trim()),
+  ].filter(Boolean);
+  return parts.length ? parts.join('\n\n').slice(0, MAX_ANSWER) : null;
 }
 
 /**

@@ -6,7 +6,7 @@
 //
 // The sibling suffix is "#N": hostnames never contain "#", so claude@lab-1 (a machine) and claude@lab#2
 // (a second session on "lab") cannot be confused.
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -51,9 +51,10 @@ function readLock(file, { now = Date.now(), isAlive = alive } = {}) {
 
 /**
  * Take the first free slot for base (e.g. claude@pc or claude/opus@pc). A slot is free if it has no lock, or its lock
- * is stale (dead PID or not refreshed for STALE_MS). A stale lock is moved aside with an atomic rename and checked:
- * if what was moved turns out to be someone's fresh lock, it is put back and the slot is skipped. The new lock is
- * created with 'wx' and read back, so two sessions racing for one slot cannot both win.
+ * is stale (dead PID or not refreshed for STALE_MS). Only one session at a time may remove a stale lock: it holds
+ * an exclusive "<lock>.takeover" folder (mkdir is atomic) and checks the lock again inside it, so a fresh lock
+ * written meanwhile is never removed. The new lock is created with 'wx' and read back, so two sessions racing for
+ * one slot cannot both win.
  * -> { id, release(), refresh() } or null when every slot is busy.
  */
 export function claimSlot(base, { dir = SLOTS_DIR, pid = process.pid, isAlive = alive, max = 20, now = Date.now() } = {}) {
@@ -64,13 +65,21 @@ export function claimSlot(base, { dir = SLOTS_DIR, pid = process.pid, isAlive = 
     if (existsSync(file)) {
       const owner = readLock(file, { now, isAlive });
       if (owner && owner.pid !== pid) continue;
-      const aside = `${file}.stale-${pid}-${Math.random().toString(36).slice(2)}`;
-      try { renameSync(file, aside); } catch { continue; } // someone else is taking it over
-      if (readLock(aside, { now, isAlive })) { // we moved a fresh lock written in between: give it back
-        try { renameSync(aside, file); } catch { /* the slot is taken anyway */ }
+      const guard = `${file}.takeover`;
+      try {
+        mkdirSync(guard);
+      } catch {
+        // another session is taking this slot over; a guard left by a crashed takeover expires after 10 s
+        try { if (Date.now() - statSync(guard).mtimeMs > 10_000) rmdirSync(guard); } catch { /* gone */ }
         continue;
       }
-      try { unlinkSync(aside); } catch { /* gone */ }
+      try {
+        const again = readLock(file, { now: Date.now(), isAlive });
+        if (again && again.pid !== pid) continue; // someone wrote a fresh lock before we got the guard
+        try { unlinkSync(file); } catch { /* already gone */ }
+      } finally {
+        try { rmdirSync(guard); } catch { /* gone */ }
+      }
     }
     try {
       writeFileSync(file, JSON.stringify({ pid, id, at: new Date(now).toISOString() }), { flag: 'wx', mode: 0o600 });

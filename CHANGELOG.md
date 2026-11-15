@@ -7,6 +7,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 Fixes from an independent review of 0.6.0–0.7.0.
 
+**Upgrading:** once `CREW_HARNESS` pins 0.7.1, open crew PRs made with 0.7.0 or older turn red (`outdated_crew`, not waivable). Each author updates crew and runs `crew pr open` again in the task folder; it refreshes the version stamp. PRs from a headless worker need someone to do that in the worker's task folder. Agent names from 0.7.0 set by hand (`claude@pc-2`) are not treated as siblings: drop the manual `CREW_AGENT_ID` and let crew name sessions.
+
 ### Security
 - One identity per session: terminal `crew` calls resolve the session's own name (the worktree pin, or the only live session on the machine); with several live sessions and no pin, every command that writes under the agent's name refuses with `ambiguous_agent` instead of guessing.
 - Session names: a second session on a machine is `claude@pc#2` (was `claude@pc-2`), so machines whose names end in digits (`lab-1`, `lab-2`) are never mistaken for sessions. Names with a model (`claude/opus@pc`) stay intact in the CLI. A new session claims its slot from the base name, never from a live sibling's.
@@ -14,8 +16,8 @@ Fixes from an independent review of 0.6.0–0.7.0.
 - Waiving `not_crew_pr` no longer lets the author approve: the commits' agents (and, with no known agent, the GitHub account that opened the PR) cannot review it. Review markers from bots never count.
 - The "Changes acceptance" section only relaxes the acceptance rule when a team member (owner, member, collaborator) wrote the issue.
 - `crew merge-ready` merges with `--match-head-commit`, so a push after the review cannot slip in.
-- Session locks live in a per-user folder (never one another account owns), are refreshed while the session runs, go stale after 30 minutes without a refresh, and are taken over atomically.
-- Questions: the answer reaches the asker as text: a member's `crew:answer` comment, or a member's plain reply in GitHub (never outsiders, bots or the hand-off note); question and answer text cannot forge markers; `crew ask` rejects unknown areas; an agent cannot answer its own question; `crew inbox --ack` only touches questions.
+- Session locks live in a per-user folder (never one another account owns), are refreshed while the session runs, and go stale after 30 minutes without a refresh; only one session at a time may take over a stale lock, so two sessions never get the same name.
+- Questions: the answer reaches the asker as text: a member's `crew:answer` comment, or the members' plain replies in GitHub after it (never outsiders, bots or the hand-off note; a quote reply counts); question and answer text cannot forge markers; `crew ask` rejects unknown areas; an agent cannot answer its own question; `crew inbox --ack` only touches questions.
 - `crew guard` fails crew PRs opened with a crew older than the repo's `CREW_HARNESS` (`outdated_crew`), using a version stamp `crew pr open` writes and refreshes; a crew PR without a stamp counts as older.
 
 ### Fixed
