@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-15
+
 Fixes from an independent review of 0.6.0–0.7.0.
 
 **Upgrading:** once `CREW_HARNESS` pins 0.7.1, open crew PRs made with 0.7.0 or older turn red (`outdated_crew`, not waivable). Each author updates crew and runs `crew pr open` again in the task folder; it refreshes the version stamp. PRs from a headless worker need someone to do that in the worker's task folder. Agent names from 0.7.0 set by hand (`claude@pc-2`) are not treated as siblings: drop the manual `CREW_AGENT_ID` and let crew name sessions.
