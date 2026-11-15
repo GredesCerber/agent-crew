@@ -244,6 +244,8 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew board [--port 4747]` | local task board in the browser: queue by status, PRs waiting; set assignee, status and priority by hand (no agent tokens) |
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
+| `crew idea "..." [--original "..."] [--from_person login] [--task N]` | record an idea a person suggested outside the current task; the captain sees it in `crew task next`, the digest and the board |
+| `crew idea list` / `crew idea accept <n> [--area a] [--priority high\|low]` / `crew idea reject <n> --reason "..."` | captain: decide on ideas; accept turns one into a `needs-spec` task |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | human only: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit of a PR made outside crew; the review is still required |
 | `crew pr logs <n>` | why a PR check is red: the failing step of the CI log, no browser needed |

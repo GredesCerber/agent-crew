@@ -10,6 +10,7 @@ import { loadConfig } from '../core/config.js';
 import { listIssues } from '../core/issues.js';
 import { boardModel, actionArgs, renderPage } from '../core/board.js';
 import { openQuestions, teamOf, claimCommentsOf } from './digest.js';
+import { loadIdeas } from './idea.js';
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
@@ -23,6 +24,8 @@ export function githubSource(root) {
     questions: () => openQuestions(root),
     team: () => teamOf(root),
     claimComments: () => claimCommentsOf(root),
+    ideas: () => loadIdeas(root),
+    login: () => (gh(['api', 'user', '--jq', '.login'], { cwd: root, allowFail: true }).stdout || '').trim() || null,
   };
 }
 
@@ -51,7 +54,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts })
     if (!url.pathname.startsWith('/api/')) return json(res, 404, { error: 'not found' });
     if (req.headers['x-crew-token'] !== token) return json(res, 403, { error: 'bad token — reload the page from the URL crew board printed' });
     if (req.method === 'GET' && url.pathname === '/api/board') {
-      return json(res, 200, boardModel({ issues: source.issues(), prs: source.prs(), members: getMembers(), questions: source.questions?.() ?? [], team: source.team?.() ?? null, claimComments: source.claimComments?.() ?? {}, config }));
+      return json(res, 200, boardModel({ issues: source.issues(), prs: source.prs(), members: getMembers(), questions: source.questions?.() ?? [], team: source.team?.() ?? null, claimComments: source.claimComments?.() ?? {}, ideas: source.ideas?.() ?? [], config }));
     }
     if (req.method === 'POST' && url.pathname === '/api/action') {
       if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: 'json only' });
@@ -63,7 +66,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts })
       let body;
       try { body = JSON.parse(raw); } catch { return json(res, 400, { error: 'bad json' }); }
       const current = source.issues().find((i) => i.number === Number(body.issue));
-      const a = actionArgs(body, current, { members: getMembers() });
+      const a = actionArgs(body, current, { members: getMembers(), login: body.op === 'idea' ? source.login?.() ?? null : null, config });
       if (a.error) return json(res, 400, { error: a.error });
       if (a.noop) return json(res, 200, { ok: true, noop: true });
       const r = source.edit(a.args);

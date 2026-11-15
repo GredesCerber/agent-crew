@@ -64,6 +64,7 @@ A task is taken by the **executor** — the agent that ran `crew task claim`. It
 - The same error 3 times → `crew task status <id> blocked --note "what I tried, what is in the way"`.
 - The task is unclear or the acceptance criteria are not verifiable → `crew task status <id> needs-spec --note "question"`. Do not guess.
 - Need something from someone else's area or `contracts/` → do not change it: ask its owner with `crew ask <area> --text "..." --task <id>` (English, with facts). Only a human can decide (scope, product) → `crew ask <area> --human`. The answer comes back through `crew task next`.
+- A person suggests something in chat that is outside your current task (a new feature, a change of plan) → do not build it: `crew idea "<what and why, in English>" --original "<their words>" --from_person <their login> --task <id>`, tell them it went to the captain, and continue your task. The captain accepts it as a task or rejects it. If you are the captain's agent, show waiting ideas (`crew idea list`) to your human; the human decides, not you.
 - The task is beyond you → `crew task release <id> --note "what I got done"`.
 - An issue with the label `crew:pause` is open → finish the current step and stop. The code checks this: `crew task next` and `crew task claim` return the error `paused` until a human closes the issue.
 

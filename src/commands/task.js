@@ -13,6 +13,8 @@ import { updateHint } from '../core/version.js';
 import { loadQuestions } from './ask.js';
 import { pinId, pinnedId } from '../core/session.js';
 import { inboxFor } from '../core/questions.js';
+import { canDecide } from '../core/ideas.js';
+import { loadIdeas } from './idea.js';
 import { DEFAULT_PRD, parsePrd, teamReviewers, readyProblems } from '../core/prd.js';
 
 /** claimed without a claim marker (the label was set by hand): activity is the issue updatedAt or a push to the branch. */
@@ -105,7 +107,15 @@ const next = {
     const until = now() + minutes * 60_000;
     // Outdated crew on a member machine: fixes do not apply. We tell the human and do not block the task.
     const hint = deps.updateHint ? deps.updateHint() : deps.config ? null : updateHint();
-    const withHint = (r) => (hint && r.next_actions ? { ...r, next_actions: [...r.next_actions, `tell the human: ${hint}`] } : r);
+    // The captain's agent is reminded of ideas waiting for a decision, without being blocked by them:
+    // only the human decides, and the agent keeps working meanwhile.
+    const ideas = deps.ideasWaiting ? deps.ideasWaiting() : deps.config ? 0 : captainIdeasWaiting();
+    const ideaNote = ideas ? `${ideas} idea(s) wait for the captain's decision: show them to your human (crew idea list); do not decide yourself` : null;
+    const withHint = (r) => {
+      if (!r.next_actions) return r;
+      const extra = [...(ideaNote ? [ideaNote] : []), ...(hint ? [`tell the human: ${hint}`] : [])];
+      return extra.length ? { ...r, next_actions: [...r.next_actions, ...extra], artifacts: { ...r.artifacts, ...(ideas ? { ideas_waiting: ideas } : {}) } } : r;
+    };
     for (;;) {
       const r = this.once(opts, deps);
       const idle = r.status === 'warning' && r.artifacts?.idle === true;
@@ -218,6 +228,17 @@ const next = {
 function myLogin() {
   const r = run('gh', ['api', 'user', '--jq', '.login'], { allowFail: true });
   return r.code === 0 ? r.stdout.trim() || null : null;
+}
+
+/** For the captain only: how many ideas wait for a decision (0 for everyone else, or without a captain). */
+function captainIdeasWaiting() {
+  try {
+    const { config, root } = loadConfig();
+    if (!config.captain || !canDecide(myLogin(), config)) return 0;
+    return loadIdeas(root).length;
+  } catch {
+    return 0;
+  }
 }
 
 /** The crew-team block from docs/prd.md in the current checkout (the captain publishes the PRD to main during kickoff --apply). */

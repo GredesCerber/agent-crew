@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- Ideas: when a person suggests something outside the current task, the agent records it with `crew idea` (English summary plus the person's own words) instead of building it, and keeps working. The captain sees waiting ideas in `crew task next` (a reminder, never a blocker), the digest and the board (Accept / Reject buttons), and decides with `crew idea accept <n>` (a `needs-spec` task, then the usual spec and DoR check) or `crew idea reject <n> --reason`. Only the captain's GitHub login can decide.
+
 ## [0.7.1] — 2026-11-15
 
 Fixes from an independent review of 0.6.0–0.7.0.

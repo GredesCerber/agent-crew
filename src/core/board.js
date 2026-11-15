@@ -1,9 +1,10 @@
 // Task board for humans (crew board): see the queue and steer it by hand without spending agent tokens.
 // Pure functions: the model shown on the page, and the gh arguments for each action the page can request.
-import { labelValue, marker } from './issues.js';
+import { labelValue, marker, safeText } from './issues.js';
 import { prQueue } from './queue.js';
 import { LOGIN_RE } from './prd.js';
 import { digestModel } from './digest.js';
+import { IDEA_LABEL, ideaMeta, canDecide, acceptArgs } from './ideas.js';
 
 export const COLUMNS = ['ready', 'claimed', 'review', 'waiting', 'blocked', 'needs-spec'];
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -12,12 +13,12 @@ export const BOARD_STATUSES = ['ready', 'blocked', 'needs-spec', 'waiting'];
 
 const prio = (i) => labelValue(i, 'priority') ?? 'normal';
 
-export function boardModel({ issues = [], prs = [], members = [], questions = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
+export function boardModel({ issues = [], prs = [], members = [], questions = [], ideas = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
   const columns = Object.fromEntries(COLUMNS.map((c) => [c, []]));
   const other = [];
   for (const i of issues) {
     const status = labelValue(i, 'status');
-    if ((i.labels ?? []).some((l) => l.name === 'epic')) continue;
+    if ((i.labels ?? []).some((l) => l.name === 'epic' || l.name === IDEA_LABEL)) continue; // ideas have their own list
     const card = {
       number: i.number,
       title: i.title,
@@ -37,8 +38,9 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
     kind: x.kind, number: x.number, title: x.title, risk: x.risk, age_min: x.age, reason: x.reason ?? null, have: x.have ?? null, need: x.need ?? null,
   }));
   // Captain panel: the same status crew digest posts to the pinned issue.
-  const digest = digestModel({ issues, prs, questions, team, claimComments, config, now });
-  return { columns, untracked: other.length, prs: queue, digest, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
+  const digest = digestModel({ issues, prs, questions, ideas, team, claimComments, config, now });
+  const ideaList = ideas.map((i) => ({ number: i.number, title: i.title, who: ideaMeta(i)?.who ?? null }));
+  return { columns, untracked: other.length, prs: queue, digest, ideas: ideaList, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
 }
 
 /**
@@ -46,10 +48,22 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
  * is only a convenience: the server never passes page input to gh unchecked.
  * current: the issue as listed ({ number, labels, assignees }).
  */
-export function actionArgs({ op, value }, current, { members = [] } = {}) {
+export function actionArgs({ op, value, reason }, current, { members = [], login = null, config = {} } = {}) {
   if (!current || !Number.isInteger(current.number)) return { error: 'unknown issue' };
   const n = String(current.number);
   const labels = (current.labels ?? []).map((l) => l.name);
+  if (op === 'idea') {
+    // only the captain decides (login of the gh account the board runs under)
+    if (!canDecide(login, config)) return { error: `only the captain ${config.captain} decides on ideas${login ? `, and gh is logged in as ${login}` : ''}` };
+    if (!labels.includes(IDEA_LABEL)) return { error: `#${n} is not an open idea` };
+    if (value === 'accept') return acceptArgs(current, { by: login ?? 'captain', config });
+    if (value === 'reject') {
+      const why = String(reason ?? '').trim();
+      if (!why) return { error: 'a reason is needed to reject an idea' };
+      return { args: ['issue', 'close', n, '--reason', 'not planned', '--comment', `<!-- crew:idea-rejected by=${login ?? 'captain'} -->\n❌ Not now (@${login ?? 'captain'}): ${safeText(why).slice(0, 1000)}`] };
+    }
+    return { error: 'idea action must be accept or reject' };
+  }
   if (op === 'assign') {
     const to = String(value ?? '');
     const now = (current.assignees ?? []).map((a) => a.login);
@@ -120,14 +134,15 @@ const TOKEN=${JSON.stringify(token)};const REPO=${JSON.stringify(repo)};
 const COLS=${JSON.stringify(COLUMNS)};const ST=${JSON.stringify(BOARD_STATUSES)};const PR=${JSON.stringify(PRIORITIES)};
 const e=(t,a={},...k)=>{const n=document.createElement(t);for(const[x,y]of Object.entries(a)){if(x==='on')for(const[ev,f]of Object.entries(y))n.addEventListener(ev,f);else n.setAttribute(x,y)}for(const c of k)n.append(c);return n};
 const sel=(opts,cur,on)=>{const s=e('select',{on:{change:()=>on(s.value)}});for(const[v,l]of opts){const o=e('option',{value:v},l);if(v===cur)o.selected=true;s.append(o)}return s};
-async function act(issue,op,value){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json','x-crew-token':TOKEN},body:JSON.stringify({issue,op,value})});const j=await r.json();document.getElementById('msg').textContent=j.error||'';load()}
+async function act(issue,op,value,reason){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json','x-crew-token':TOKEN},body:JSON.stringify({issue,op,value,reason})});const j=await r.json();document.getElementById('msg').textContent=j.error||'';load()}
 async function load(){const r=await fetch('/api/board',{headers:{'x-crew-token':TOKEN}});const m=await r.json();if(m.error){document.getElementById('msg').textContent=m.error;return}
 document.getElementById('time').textContent='updated '+new Date(m.generated_at).toLocaleTimeString();
 const d=m.digest,c=d.counts,k=document.getElementById('kpis');k.replaceChildren();
-for(const[n,l,cls]of[[c.ready,'ready',''],[c.claimed,'in progress',''],[c.human,'need a human',c.human?'bad':''],[c.stale,'stale leases',c.stale?'warn':''],[c.prs,'PRs waiting',''],[c.questions,'open questions',''],[c.idle,'idle members',c.idle?'warn':'']])k.append(e('div',{class:'kpi '+cls},e('b',{},String(n)),e('span',{},l)));
-const al=document.getElementById('alerts');al.replaceChildren();const busy=d.sections.filter(s=>s.key!=='prs'&&s.lines.length);
+for(const[n,l,cls]of[[c.ready,'ready',''],[c.claimed,'in progress',''],[c.human,'need a human',c.human?'bad':''],[c.stale,'stale leases',c.stale?'warn':''],[c.prs,'PRs waiting',''],[c.questions,'open questions',''],[c.ideas??0,'ideas to decide',c.ideas?'warn':''],[c.idle,'idle members',c.idle?'warn':'']])k.append(e('div',{class:'kpi '+cls},e('b',{},String(n)),e('span',{},l)));
+const al=document.getElementById('alerts');al.replaceChildren();const busy=d.sections.filter(s=>s.key!=='prs'&&s.key!=='ideas'&&s.lines.length);
+if((m.ideas||[]).length){const ul=e('ul');for(const i of m.ideas){const ok=e('button',{on:{click:()=>act(i.number,'idea','accept')}},'Accept');const no=e('button',{on:{click:()=>{const why=prompt('Why not (the person will read this)?');if(why)act(i.number,'idea','reject',why)}}},'Reject');ul.append(e('li',{},e('a',{href:'https://github.com/'+REPO+'/issues/'+i.number,target:'_blank',rel:'noopener'},'#'+i.number+' '+i.title),i.who?' (from @'+i.who+') ':' ',ok,' ',no))}al.append(e('div',{class:'card'},e('h2',{},'Ideas waiting for the captain'),ul))}
 for(const s of busy){const ul=e('ul');for(const l of s.lines)ul.append(e('li',{},l));al.append(e('div',{class:'card'},e('h2',{},s.title),ul))}
-if(!busy.length)al.append(e('div',{class:'card ok'},'All clear: nobody waits for a human, no stale leases, everyone is busy.'));
+if(!busy.length&&!(m.ideas||[]).length)al.append(e('div',{class:'card ok'},'All clear: nobody waits for a human, no stale leases, everyone is busy.'));
 const cols=document.getElementById('cols');cols.replaceChildren();
 for(const c of COLS){const s=e('section',{},e('h2',{},c+' ('+m.columns[c].length+')'));
 for(const t of m.columns[c]){const who=[['','unassigned'],...m.members.map(x=>[x,x])];

@@ -3,6 +3,7 @@
 import { labelValue, ownerState } from './issues.js';
 import { prQueue } from './queue.js';
 import { questionMeta, HUMAN_LABEL, QUESTION_LABEL } from './questions.js';
+import { IDEA_LABEL, ideaMeta } from './ideas.js';
 
 export const DIGEST_LABEL = 'crew:digest';
 export const DIGEST_TITLE = 'crew digest: team status';
@@ -12,12 +13,12 @@ const minsSince = (now, iso) => Math.max(0, Math.round((now - Date.parse(iso ?? 
 const names = (xs) => (xs ?? []).map((x) => x.name);
 
 /** -> { sections: [{ key, title, lines }], counts } (pure, no network). */
-export function digestModel({ issues = [], prs = [], questions = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
+export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
   const lease = config.lease_minutes ?? 45;
   const reviewWait = config.review?.fallback_minutes ?? 30;
   const st = (i) => labelValue(i, 'status');
   const who = (i) => (i.assignees ?? []).map((a) => `@${a.login}`).join(' ') || 'no owner';
-  const tasks = issues.filter((i) => !names(i.labels).some((n) => ['epic', QUESTION_LABEL, DIGEST_LABEL].includes(n)));
+  const tasks = issues.filter((i) => !names(i.labels).some((n) => ['epic', QUESTION_LABEL, DIGEST_LABEL, IDEA_LABEL].includes(n)));
   const ready = tasks.filter((i) => st(i) === 'ready');
   const claimed = tasks.filter((i) => st(i) === 'claimed');
 
@@ -40,6 +41,7 @@ export function digestModel({ issues = [], prs = [], questions = [], team = null
           : `#${x.number} ${x.title}: waits for review ${x.age} min${x.age > reviewWait ? ' (slow)' : ''}`);
   const unanswered = questions.filter((q) => !names(q.labels).includes(HUMAN_LABEL))
     .map((q) => `#${q.number} ${q.title} (to ${who(q)}, ${minsSince(now, q.createdAt ?? q.updatedAt)} min)`);
+  const ideaLines = ideas.map((i) => { const m = ideaMeta(i); return `#${i.number} ${i.title}${m?.who ? ` (from @${m.who})` : ''}, ${minsSince(now, i.createdAt)} min`; });
   const idle = [];
   for (const m of team?.members ?? []) {
     const lc = m.login.toLowerCase();
@@ -55,12 +57,13 @@ export function digestModel({ issues = [], prs = [], questions = [], team = null
     { key: 'human', title: 'Needs a human', lines: [...human, ...blocked] },
     { key: 'stale', title: 'Stale leases', lines: stale },
     { key: 'prs', title: 'Pull requests', lines: prLines },
+    { key: 'ideas', title: 'Ideas waiting for the captain', lines: ideaLines },
     { key: 'questions', title: 'Open questions between agents', lines: unanswered },
     { key: 'idle', title: 'Idle members', lines: idle },
   ];
   return {
     sections,
-    counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, idle: idle.length },
+    counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, ideas: ideaLines.length, idle: idle.length },
   };
 }
 

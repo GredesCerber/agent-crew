@@ -10,6 +10,7 @@ import { listIssues } from '../core/issues.js';
 import { DEFAULT_PRD, parsePrd } from '../core/prd.js';
 import { QUESTION_LABEL } from '../core/questions.js';
 import { digestModel, renderDigest, DIGEST_LABEL, DIGEST_TITLE } from '../core/digest.js';
+import { loadIdeas } from './idea.js';
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
@@ -31,6 +32,7 @@ export function githubData(root) {
     issues: listIssues({ limit: 500 }),
     prs: ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [],
     questions: openQuestions(root),
+    ideas: loadIdeas(root),
     team: teamOf(root),
     // owner markers of claimed tasks, so "stale" means what the sweep means
     claimComments: claimCommentsOf(root),

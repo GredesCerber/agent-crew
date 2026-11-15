@@ -42,6 +42,7 @@ In Codex (no `/loop`), within one turn: `crew task next --wait 20` (CLI, not MCP
 | The same error 3 times | `crew task status <id> blocked --note "..."` |
 | Need something from another area (a field, an endpoint, a decision) | `crew ask <area> --text "..." --task <id>` (English, with facts); keep working on what you can, the answer arrives in `crew task next` |
 | Need to change the contract / someone else's area yourself | do not; ask its owner (`crew ask`); a product/scope decision → `crew ask <area> --human` |
+| A person suggests something outside your task (a new feature, a plan change) | do not build it: `crew idea "<English summary>" --original "<their words>" --from_person <login> --task <id>`; tell them the captain decides; continue your task |
 | Cannot cope | `crew task release <id> --note "what I got done"` |
 | An issue `crew:pause` is open | finish the step, stop |
 | `claim_conflict` 3 times in a row | stop, tell the human |
