@@ -49,6 +49,12 @@ Take the parameters from the human's message. If something is missing, ask once 
 - `--invite alice,bob`: GitHub logins of the members.
 - `--public`: a public repo. On the free GitHub plan a private repo cannot have branch protection, and the `github-setup` step fails with HTTP 403. Unless the human says otherwise, use a public repo (or they need GitHub Pro/Team).
 - `--hosts claude,codex`: agent hosts (default `claude,codex`).
+- The captain rule: **ask the human (the repo owner) before running `crew up`**, in their language. The captain (whoever runs `crew up`) is the only one who plans, accepts or rejects ideas and gets questions that need a human. Ask: may someone else act as captain when the captain or their agent is away (for example, out of usage)?
+  - No → `--handover off` (the default): those things wait for the captain.
+  - Only certain people → `--handover deputies --deputies alice,bob`: the captain hands over with `crew captain handoff @alice --hours 6`.
+  - Anyone on the team → `--handover team`.
+  - Optionally, automatic: `--fallback_hours 3` makes the first deputy act when the captain has been quiet for 3 hours.
+  It can be changed later with `crew captain policy`.
 - Optional event mode: `--start <ISO> --end <ISO>` (with a time zone, e.g. `2026-11-10T10:00:00+03:00`) and `--event-name "<name>"`. Without them, compliance checks are off.
 
 Run from the folder **in which** the project should be created:
@@ -67,7 +73,7 @@ The command does the following on its own:
 
 Then:
 
-1. Relay `artifacts.human_steps` to the human (for example, confirming project trust in Codex).
+1. Explain the captain rule to the human in plain words (`artifacts.captain_rule`), then relay `artifacts.human_steps` (for example, confirming project trust in Codex).
 2. Check CI: `gh run list -R <owner>/<name> -L 3`. If a run failed early, rerun it: `gh run rerun <id> -R <owner>/<name>`. Wait for the result and make sure the status is `success`. If it fails again, show the human the last lines of `gh run view <id> -R <owner>/<name> --log-failed`.
 3. Tell the human what to send to the members: the "Member" message from the end of this file with the repo filled in.
 4. Tell the human how to start agents in the project folder (`next_actions` from `crew up`). The current session must be restarted inside the project folder, because agent configs are read at startup.

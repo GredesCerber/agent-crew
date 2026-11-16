@@ -11,6 +11,7 @@ import { listIssues } from '../core/issues.js';
 import { boardModel, actionArgs, renderPage } from '../core/board.js';
 import { openQuestions, teamOf, claimCommentsOf } from './digest.js';
 import { loadIdeas } from './idea.js';
+import { loadActingCaptain } from './captain.js';
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
@@ -26,6 +27,7 @@ export function githubSource(root) {
     claimComments: () => claimCommentsOf(root),
     ideas: () => loadIdeas(root),
     login: () => (gh(['api', 'user', '--jq', '.login'], { cwd: root, allowFail: true }).stdout || '').trim() || null,
+    acting: (config) => loadActingCaptain(root, config),
   };
 }
 
@@ -66,7 +68,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts })
       let body;
       try { body = JSON.parse(raw); } catch { return json(res, 400, { error: 'bad json' }); }
       const current = source.issues().find((i) => i.number === Number(body.issue));
-      const a = actionArgs(body, current, { members: getMembers(), login: body.op === 'idea' ? source.login?.() ?? null : null, config });
+      const a = actionArgs(body, current, { members: getMembers(), login: body.op === 'idea' ? source.login?.() ?? null : null, acting: body.op === 'idea' ? source.acting?.(config) ?? null : null, config });
       if (a.error) return json(res, 400, { error: a.error });
       if (a.noop) return json(res, 200, { ok: true, noop: true });
       const r = source.edit(a.args);

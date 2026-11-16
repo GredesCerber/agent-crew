@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import { ok, warn, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
+import { hasCaptainPowers } from '../core/captain.js';
+import { loadActingCaptain } from './captain.js';
 import {
   DEFAULT_PRD, parsePrd, lintPrd, planKickoff, prdApproval, renderTaskBody, renderEpicBody, formatLintItem,
 } from '../core/prd.js';
@@ -220,8 +222,10 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false } = {}, dep
   if (captain) {
     const who = gh(['api', 'user', '--jq', '.login']);
     const me = who.code === 0 ? who.stdout.trim() : null;
-    if (!me || me.toLowerCase() !== String(captain).toLowerCase()) {
-      return fail('not_captain', `Only the captain ${captain} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
+    // the acting captain (a handover by the captain, or the automatic fallback) may plan too, if the project allows it
+    const acting = deps.acting !== undefined ? deps.acting : cfg ? loadActingCaptain(cfg.root, { ...cfg.config, captain }) : null;
+    if (!hasCaptainPowers(me, { captain }, acting)) {
+      return fail('not_captain', `Only the captain ${captain}${acting?.login && acting.why !== 'captain' ? ` (or @${acting.login}, acting now)` : ''} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
         cause_hint: 'the team has one plan: a second kickoff creates duplicate tasks and a foreign skeleton',
         retry: 'members: do not plan, work through the crew-workflow cycle (crew task next)',
         stop_when: 'immediately: tell the human that the captain makes the plan',

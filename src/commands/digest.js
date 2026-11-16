@@ -11,6 +11,7 @@ import { DEFAULT_PRD, parsePrd } from '../core/prd.js';
 import { QUESTION_LABEL } from '../core/questions.js';
 import { digestModel, renderDigest, DIGEST_LABEL, DIGEST_TITLE } from '../core/digest.js';
 import { loadIdeas } from './idea.js';
+import { loadActingCaptain } from './captain.js';
 
 const PR_FIELDS = 'number,title,body,headRefOid,createdAt,isDraft,author,labels,comments,statusCheckRollup,mergeable,isCrossRepository,autoMergeRequest';
 
@@ -59,7 +60,7 @@ export default {
   args: [{ name: 'post', type: 'boolean', description: 'create or update the pinned "crew digest" issue (the sweep job does this)' }],
   run({ post = false } = {}, deps = {}) {
     const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
-    const data = deps.data ?? githubData(root);
+    const data = deps.data ?? { ...githubData(root), acting: loadActingCaptain(root, config) };
     const now = deps.now ?? Date.now();
     const model = digestModel({ ...data, config, now });
     const markdown = renderDigest(model, { now });

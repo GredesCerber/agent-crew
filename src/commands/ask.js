@@ -8,6 +8,7 @@ import { gh, ghJson, run } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import { comment, safeText } from '../core/issues.js';
 import { sameAgent } from '../core/session.js';
+import { loadActingCaptain } from './captain.js';
 import { DEFAULT_PRD, parsePrd, areaOwners } from '../core/prd.js';
 import { QUESTION_LABEL, HUMAN_LABEL, mostlyNonEnglish, questionBody, questionMeta, answerMarker, ackMarker, inboxFor } from '../core/questions.js';
 
@@ -19,6 +20,8 @@ const team = (root) => {
   const p = join(root, DEFAULT_PRD);
   return existsSync(p) ? parsePrd(readFileSync(p, 'utf8')).team : null;
 };
+// A decision for a human goes to whoever acts as captain now (the captain, or a deputy during a handover).
+const captainNow = (root, config) => loadActingCaptain(root, config).login ?? config.captain ?? null;
 const ENGLISH = { cause_hint: 'agents write to each other in English (talk to humans in their language)', retry: 'rewrite the text in English and run the command again' };
 
 /** Open and recently closed questions (bodies and comments needed for markers). */
@@ -45,13 +48,13 @@ const ask = {
       return fail('unknown_area', `No area "${to}" in crew.config.json`, { retry: `crew ask <${Object.keys(config.areas ?? {}).join('|') || 'area'}> --text "..." or crew ask @login --text "..."` });
     }
     const owners = areaOwners(team(root));
-    const login = String(to).startsWith('@') ? String(to).slice(1) : owners[to] ?? (human ? config.captain : null);
+    const login = String(to).startsWith('@') ? String(to).slice(1) : owners[to] ?? (human ? captainNow(root, config) : null);
     const area = String(to).startsWith('@') ? null : to;
     if (!login && !area) return fail('bad_input', `Unknown recipient ${to}`, { retry: 'crew ask <area> --text "..." or crew ask @login --text "..."' });
     const labels = [QUESTION_LABEL, ...(area && config.areas?.[area] ? [`area:${area}`] : []), ...(human ? [HUMAN_LABEL] : [])];
     const title = `Q${area ? ` [${area}]` : ''}: ${text.trim().split('\n')[0].slice(0, 70)}`;
     const args = ['issue', 'create', '--title', title, '--label', labels.join(','), '--body-file', '-'];
-    const assignee = login ?? config.captain;
+    const assignee = login ?? (human ? captainNow(root, config) : config.captain);
     if (assignee) args.push('--assignee', assignee);
     const r = gh(args, { cwd: root, allowFail: true, input: questionBody({ text, from: agentId(), task, area }) });
     const number = Number(/\/issues\/(\d+)/.exec(r.stdout ?? '')?.[1]);
@@ -118,7 +121,8 @@ const answer = {
     if (human) {
       comment(number, `${answerMarker(me)}\n**Needs a human decision** (\`${me}\`): ${safeText(text)}`);
       const args = ['issue', 'edit', String(number), '--add-label', HUMAN_LABEL];
-      if (config.captain) args.push('--add-assignee', config.captain);
+      const cap = captainNow(root, config);
+      if (cap) args.push('--add-assignee', cap);
       gh(args, { cwd: root, allowFail: true });
       return ok(`#${number} handed to a human`, { next_actions: ['crew task next'] });
     }

@@ -48,13 +48,13 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
  * is only a convenience: the server never passes page input to gh unchecked.
  * current: the issue as listed ({ number, labels, assignees }).
  */
-export function actionArgs({ op, value, reason }, current, { members = [], login = null, config = {} } = {}) {
+export function actionArgs({ op, value, reason }, current, { members = [], login = null, config = {}, acting = null } = {}) {
   if (!current || !Number.isInteger(current.number)) return { error: 'unknown issue' };
   const n = String(current.number);
   const labels = (current.labels ?? []).map((l) => l.name);
   if (op === 'idea') {
     // only the captain decides (login of the gh account the board runs under)
-    if (!canDecide(login, config)) return { error: `only the captain ${config.captain} decides on ideas${login ? `, and gh is logged in as ${login}` : ''}` };
+    if (!canDecide(login, config, acting)) return { error: `only the captain (or the acting captain) ${config.captain} decides on ideas${login ? `, and gh is logged in as ${login}` : ''}` };
     if (!labels.includes(IDEA_LABEL)) return { error: `#${n} is not an open idea` };
     if (value === 'accept') return acceptArgs(current, { by: login ?? 'captain', config });
     if (value === 'reject') {

@@ -20,5 +20,6 @@
   {"name": "crew:question", "color": "0052cc", "description": "a question from an agent to the owner of an area (crew ask); answered with crew answer"},
   {"name": "needs-human", "color": "e99695", "description": "only a human can decide this (scope, contract, product choice)"},
   {"name": "crew:idea", "color": "fef2c0", "description": "an idea someone suggested; the captain accepts it as a task or rejects it"},
+  {"name": "crew:captain", "color": "fbca04", "description": "the captain handover log: who acts as captain (crew captain handoff/back)"},
   {"name": "crew:digest", "color": "bfdadc", "description": "the pinned team status issue, rewritten by crew digest"}
 ]

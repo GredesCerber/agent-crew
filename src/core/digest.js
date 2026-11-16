@@ -13,7 +13,7 @@ const minsSince = (now, iso) => Math.max(0, Math.round((now - Date.parse(iso ?? 
 const names = (xs) => (xs ?? []).map((x) => x.name);
 
 /** -> { sections: [{ key, title, lines }], counts } (pure, no network). */
-export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
+export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, acting = null, config = {}, now = Date.now() } = {}) {
   const lease = config.lease_minutes ?? 45;
   const reviewWait = config.review?.fallback_minutes ?? 30;
   const st = (i) => labelValue(i, 'status');
@@ -61,7 +61,10 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
     { key: 'questions', title: 'Open questions between agents', lines: unanswered },
     { key: 'idle', title: 'Idle members', lines: idle },
   ];
+  // who decides right now (the captain, or a deputy during a handover / automatic fallback)
+  const captain = config.captain ? { captain: config.captain, acting: acting?.login && acting.why !== 'captain' ? acting : null } : null;
   return {
+    captain,
     sections,
     counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, ideas: ideaLines.length, idle: idle.length },
   };
@@ -75,6 +78,8 @@ export function renderDigest(model, { now = Date.now() } = {}) {
     `**${c.ready}** ready · **${c.claimed}** in progress · **${c.human}** need a human · **${c.stale}** stale · **${c.prs}** PRs waiting`, ''];
   // The issue is rewritten every 15 minutes: break @mentions (ours and any in titles) so nobody gets pinged each time.
   const quiet = (l) => l.replace(/@(?=[\w-])/g, '@​');
+  const cap = model.captain;
+  if (cap) out.push(quiet(cap.acting ? `**Captain:** @${cap.captain}; **acting now:** @${cap.acting.login} (${cap.acting.why === 'handoff' ? `handed over until ${cap.acting.until}` : 'the captain has been quiet, automatic fallback'})` : `**Captain:** @${cap.captain}`), '');
   for (const s of model.sections) out.push(`### ${s.title}`, ...(s.lines.length ? s.lines.map((l) => `- ${quiet(l)}`) : ['- none']), '');
   return out.join('\n');
 }

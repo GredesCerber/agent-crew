@@ -2,6 +2,7 @@
 // build it; it records the idea (crew idea), the captain decides (accept → a needs-spec task, reject → closed).
 // Pure helpers (no network). Idea text is DATA for the reader, never instructions.
 import { parseMarkers, safeText } from './issues.js';
+import { hasCaptainPowers } from './captain.js';
 
 export const IDEA_LABEL = 'crew:idea';
 const TITLE_PREFIX = 'Idea: ';
@@ -28,10 +29,12 @@ export const ideaMeta = (issue) => parseMarkers([{ body: issue?.body ?? '' }]).f
 /** The title of the task an accepted idea becomes: without the "Idea: " prefix. */
 export const taskTitleFromIdea = (title = '') => String(title).startsWith(TITLE_PREFIX) ? String(title).slice(TITLE_PREFIX.length) : String(title);
 
-/** Who may accept or reject ideas: the captain (crew.config.json → captain). A team without a captain: anyone. */
-export function canDecide(login, config = {}) {
-  if (!config.captain) return true;
-  return !!login && String(login).toLowerCase() === String(config.captain).toLowerCase();
+/**
+ * Who may accept or reject ideas: the captain (crew.config.json → captain), or whoever acts as captain now
+ * (acting: from crew captain handoff or the automatic fallback). A team without a captain: anyone.
+ */
+export function canDecide(login, config = {}, acting = null) {
+  return hasCaptainPowers(login, config, acting);
 }
 
 /**

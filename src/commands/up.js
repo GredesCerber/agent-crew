@@ -14,6 +14,8 @@ import init from './init.js';
 import adapters from './adapters.js';
 import github, { DEFAULT_HARNESS, REPO_RE } from './github.js';
 import { mainProtected } from './pr.js';
+import { policyFrom } from './captain.js';
+import { explainPolicy } from '../core/captain.js';
 
 const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 export const EVENT_PATH = 'events/event.json';
@@ -147,6 +149,9 @@ async function lead(o, sh) {
     if (o[k] && !Number.isFinite(Date.parse(o[k]))) return fail('bad_input', `--${k}: an ISO date is required, e.g. 2026-11-10T10:00:00+03:00`, { retry: 'crew up ... --start <ISO> --end <ISO>' });
   }
   if (!!o.start !== !!o.end) return fail('bad_input', '--start and --end must be given together', { retry: 'crew up ... --start <ISO> --end <ISO>' });
+  // The captain handover rule is the repo owner's choice (asked before crew up, see docs/AGENT-SETUP.md).
+  const handover = policyFrom({ mode: o.handover ?? (o.deputies ? 'deputies' : 'off'), deputies: o.deputies, fallback_hours: o.fallback_hours });
+  if (handover.error) return fail('bad_input', `captain handover: ${handover.error}`, { retry: 'crew up ... --handover off|deputies|team [--deputies alice,bob] [--fallback_hours 3]' });
   const root = resolve(o.dir ?? repo.split('/')[1]);
 
   const me = checkMachine(j, sh);
@@ -166,6 +171,7 @@ async function lead(o, sh) {
   const committed = sh('git', ['rev-parse', '--verify', '-q', 'HEAD'], { cwd: root, allowFail: true }).code === 0;
   if (committed) {
     j.add('event', 'skipped', existsSync(eventAbs) ? `${EVENT_PATH} is already in the repo` : `commits already exist — not creating ${EVENT_PATH}`);
+    if (o.handover || o.deputies || o.fallback_hours !== undefined) j.human.push('the captain handover rule is changed now with crew captain policy (crew.config.json is already committed)');
     if (o.start || !existsSync(eventAbs)) j.human.push(`event rules are changed through a PR: ${EVENT_PATH} (start/end, team_members) and "event": "${EVENT_PATH}" in crew.config.json`);
   } else {
     const team = [me.login, ...invite];
@@ -173,7 +179,7 @@ async function lead(o, sh) {
     // The captain is whoever sets the project up: only they run kickoff (protection against a second plan).
     const cfgPath = join(root, 'crew.config.json');
     const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
-    writeFileSync(cfgPath, JSON.stringify({ ...cfg, captain: me.login, ...(o.start ? { event: EVENT_PATH } : {}) }, null, 2) + '\n');
+    writeFileSync(cfgPath, JSON.stringify({ ...cfg, captain: me.login, captain_handover: handover.value, ...(o.start ? { event: EVENT_PATH } : {}) }, null, 2) + '\n');
     if (o.start) {
       j.add('event', 'done', `${EVENT_PATH}: ${o.start} — ${o.end}, team ${team.join(', ')}; compliance check enabled`);
     } else {
@@ -238,13 +244,17 @@ async function lead(o, sh) {
   }
 
   checkHkOnPath(j, sh);
-  const hosts = loadConfig(root).config.hosts ?? [];
+  const finalConfig = loadConfig(root).config;
+  const hosts = finalConfig.hosts ?? [];
   checkHosts(j, sh, hosts);
+  // The repo owner should know who decides and whether that role can be handed over: say it in plain words.
+  const captainRule = explainPolicy(finalConfig);
 
   const failed = j.steps.filter((s) => s.state === 'failed');
   return (failed.length ? warn : ok)(`Project ${repo} set up in ${root}${failed.length ? `, but with errors: ${failed.map((s) => s.id).join(', ')}` : ''}`, {
-    artifacts: { root, repo, steps: j.steps, human_steps: j.human },
+    artifacts: { root, repo, steps: j.steps, human_steps: j.human, captain_rule: captainRule },
     next_actions: [
+      `explain the captain rule to the repo owner, in their language: ${captainRule.join(' ')}`,
       ...j.human.map((h) => `for the human: ${h}`),
       `after access is granted, check CI: gh run list -R ${repo} -L 3 (a run that failed before access — gh run rerun <id> -R ${repo})`,
       ...launchHints(hosts, root),
@@ -340,6 +350,9 @@ export default {
     { name: 'event_name', type: 'string', description: 'captain: event name for events/event.json' },
     { name: 'hosts', type: 'string', description: 'captain: agent hosts, comma-separated (default claude,codex)' },
     { name: 'harness', type: 'string', description: `captain: CREW_HARNESS value (default ${DEFAULT_HARNESS})` },
+    { name: 'handover', type: 'string', enum: ['off', 'deputies', 'team'], description: 'captain: may the captain role be handed over? off (no), deputies (only to --deputies), team (anyone with write access); ask the repo owner' },
+    { name: 'deputies', type: 'string', description: 'captain: GitHub logins who may act as captain, comma-separated (the first one is the automatic fallback)' },
+    { name: 'fallback_hours', type: 'number', description: 'captain: hours of captain silence before the first deputy acts automatically (0 = never)' },
   ],
   // deps.run — stub for running external commands (tests without a network).
   async run(o, deps = {}) {

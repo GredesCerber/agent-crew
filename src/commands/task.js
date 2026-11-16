@@ -15,6 +15,7 @@ import { pinId, pinnedId } from '../core/session.js';
 import { inboxFor } from '../core/questions.js';
 import { canDecide } from '../core/ideas.js';
 import { loadIdeas } from './idea.js';
+import { loadActingCaptain } from './captain.js';
 import { DEFAULT_PRD, parsePrd, teamReviewers, readyProblems } from '../core/prd.js';
 
 /** claimed without a claim marker (the label was set by hand): activity is the issue updatedAt or a push to the branch. */
@@ -234,7 +235,7 @@ function myLogin() {
 function captainIdeasWaiting() {
   try {
     const { config, root } = loadConfig();
-    if (!config.captain || !canDecide(myLogin(), config)) return 0;
+    if (!config.captain || !canDecide(myLogin(), config, loadActingCaptain(root, config))) return 0;
     return loadIdeas(root).length;
   } catch {
     return 0;

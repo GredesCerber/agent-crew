@@ -8,6 +8,7 @@ import { loadConfig, agentId } from '../core/config.js';
 import { mostlyNonEnglish } from '../core/questions.js';
 import { safeText } from '../core/issues.js';
 import { IDEA_LABEL, ideaTitle, ideaBody, ideaMeta, canDecide, acceptArgs } from '../core/ideas.js';
+import { loadActingCaptain } from './captain.js';
 
 const myLogin = () => {
   const r = run('gh', ['api', 'user', '--jq', '.login'], { allowFail: true });
@@ -80,7 +81,7 @@ const accept = {
   run({ n, area = null, priority = null } = {}, deps = {}) {
     const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
     const login = deps.login !== undefined ? deps.login : myLogin();
-    if (!canDecide(login, config)) return notCaptain(config.captain, login);
+    if (!canDecide(login, config, deps.acting !== undefined ? deps.acting : deps.config ? null : loadActingCaptain(root, config))) return notCaptain(config.captain, login);
     const issue = deps.issue ?? ghJson(['issue', 'view', String(n), '--json', 'number,title,labels,state'], { cwd: root, allowFail: true });
     if (issue?.state && issue.state !== 'OPEN') return fail('not_open', `#${n} is closed`, { retry: 'crew idea list' });
     const a = acceptArgs(issue, { area, priority, by: login ?? 'captain', config });
@@ -106,7 +107,7 @@ const reject = {
   run({ n, reason } = {}, deps = {}) {
     const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
     const login = deps.login !== undefined ? deps.login : myLogin();
-    if (!canDecide(login, config)) return notCaptain(config.captain, login);
+    if (!canDecide(login, config, deps.acting !== undefined ? deps.acting : deps.config ? null : loadActingCaptain(root, config))) return notCaptain(config.captain, login);
     const issue = deps.issue ?? ghJson(['issue', 'view', String(n), '--json', 'number,labels,state'], { cwd: root, allowFail: true });
     if (!(issue?.labels ?? []).some((l) => (l.name ?? l) === IDEA_LABEL) || issue.state !== 'OPEN') return fail('bad_input', `#${n} is not an open idea`, { retry: 'crew idea list' });
     const call = deps.gh ?? gh;

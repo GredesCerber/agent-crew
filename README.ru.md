@@ -246,6 +246,7 @@ bob: api
 | `crew ask <зона\|@логин> --text "..." [--task N] [--human]` | вопрос хозяину зоны; вопрос — это issue (`crew:question`), ответ приходит в `crew task next` |
 | `crew idea "..." [--original "..."] [--from_person логин] [--task N]` | записать идею, которую человек предложил вне текущей задачи; капитан видит её в `crew task next`, сводке и на доске |
 | `crew idea list` / `crew idea accept <n> [--area a] [--priority high\|low]` / `crew idea reject <n> --reason "..."` | капитан: решить по идеям; accept превращает идею в задачу `needs-spec` |
+| `crew captain` / `crew captain handoff @логин [--hours N]` / `crew captain back` / `crew captain policy --mode off\|deputies\|team [--deputies a,b] [--fallback_hours N]` | кто сейчас капитан; передать роль на время (если проект разрешает); само правило, которое владелец репо выбирает при `crew up` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | вопросы к тебе и ответы на твои / ответить и закрыть (или передать человеку с `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | только человек: снять «бумажное» правило crew-guard (closes, agent_trailer, not_crew_pr) для текущего коммита PR, сделанного без crew; ревью всё равно нужно |
 | `crew pr logs <n>` | почему PR красный: упавший шаг из лога CI, без браузера |
