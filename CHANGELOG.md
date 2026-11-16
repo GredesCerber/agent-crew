@@ -5,6 +5,15 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+From a first-time-user smoke run.
+
+### Fixed
+- `crew check` on a fresh project, where every step is skipped (no tests yet), says "Nothing was verified" with a warning instead of "All checks green" (`artifacts.verified: false`); `crew pr open` still works.
+- `crew status`, `crew digest` and other GitHub commands in a project with no GitHub remote yet give `no_remote` with how to connect it (`crew up --repo`, or `git remote add`), instead of a raw gh error and "report in the issue".
+- `crew adapters build` says "all N files already up to date (M of them local to this machine)" instead of "files updated: 0 of N", which read like a failure.
+- `crew task lint` and `crew captain` outside a project give `not_a_project` instead of "PRD not found" or answers as if a project existed.
+- A mistyped command gets "Did you mean ...?" (`crew taks next` → `crew task next`, swapped letters count as one typo).
+
 ## [0.8.0] — 2026-11-16
 
 ### Added

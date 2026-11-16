@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ok, fail } from '../core/output.js';
 import { gh, ghJson, run } from '../core/exec.js';
-import { loadConfig } from '../core/config.js';
+import { loadConfig, requireProject } from '../core/config.js';
 import {
   CAPTAIN_LABEL, CAPTAIN_TITLE, HANDOVER_MODES, handoverPolicy, explainPolicy, handoffProblem, handoffMarker,
   handbackMarker, actingCaptain,
@@ -60,7 +60,10 @@ const status = {
   summary: 'Who is the captain, who acts as captain now, and the handover rule of this project',
   args: [],
   run(_ = {}, deps = {}) {
-    const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
+    const loaded = deps.config ? { config: deps.config, root: '.', path: 'deps' } : loadConfig();
+    const outside = requireProject(loaded);
+    if (outside) return outside;
+    const { config, root } = loaded;
     const acting = deps.acting ?? loadActingCaptain(root, config);
     const p = handoverPolicy(config);
     const now = acting.why === 'captain' ? `@${acting.login ?? 'nobody'} (the captain)`
@@ -80,7 +83,10 @@ const handoff = {
     { name: 'hours', type: 'number', description: 'for how long (default 6, at most 72)' },
   ],
   run({ to, hours = 6 } = {}, deps = {}) {
-    const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
+    const loaded = deps.config ? { config: deps.config, root: '.', path: 'deps' } : loadConfig();
+    const outside = requireProject(loaded);
+    if (outside) return outside;
+    const { config, root } = loaded;
     const login = deps.login !== undefined ? deps.login : myLogin();
     if (!config.captain) return fail('no_captain', 'This project has no captain in crew.config.json', { retry: 'crew up sets it' });
     if (lc(login) !== lc(config.captain)) return notTheCaptain(config.captain, login, 'hand over the captain role');
@@ -110,7 +116,10 @@ const back = {
   summary: 'Captain: end a handover now',
   args: [],
   run(_ = {}, deps = {}) {
-    const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
+    const loaded = deps.config ? { config: deps.config, root: '.', path: 'deps' } : loadConfig();
+    const outside = requireProject(loaded);
+    if (outside) return outside;
+    const { config, root } = loaded;
     const login = deps.login !== undefined ? deps.login : myLogin();
     if (lc(login) !== lc(config.captain)) return notTheCaptain(config.captain, login, 'end a handover');
     const number = (deps.issue !== undefined ? deps.issue : captainIssue(root))?.number;
@@ -145,6 +154,7 @@ const policy = {
   ],
   run(opts = {}, deps = {}) {
     const { config, root, path } = deps.config ? { config: deps.config, root: '.', path: null } : loadConfig();
+    if (!deps.config) { const outside = requireProject({ path, root }); if (outside) return outside; }
     const login = deps.login !== undefined ? deps.login : myLogin();
     if (config.captain && lc(login) !== lc(config.captain)) return notTheCaptain(config.captain, login, 'change the handover rule');
     const p = policyFrom(opts, config.captain_handover);

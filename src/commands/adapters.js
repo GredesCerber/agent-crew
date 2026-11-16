@@ -77,7 +77,9 @@ export default {
       writeFileSync(join(root, f.path), f.content);
     }
     const local = files.filter((f) => !f.commit).map((f) => f.path);
-    return ok(`Adapters: ${config.hosts.join(', ')} — files updated: ${stale.length} of ${files.length}`, {
+    // "0 of 26" read like a failure: say plainly that nothing needed changing, and that some files stay on this machine.
+    const what = stale.length ? `${stale.length} of ${files.length} files updated` : `all ${files.length} files already up to date`;
+    return ok(`Agent configs for ${config.hosts.join(', ')}: ${what} (${local.length} of them are local to this machine, not committed)`, {
       artifacts: { written: stale.map((f) => f.path), local_only: local },
       next_actions: ['restart agent sessions so they pick up the configs'],
     });

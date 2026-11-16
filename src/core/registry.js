@@ -66,6 +66,36 @@ export function findCommand(words) {
   return best;
 }
 
+const editDistance = (a, b) => {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      // two swapped letters (captian, opne) are one typo, not two
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+};
+
+/**
+ * "Did you mean": the command closest to a mistyped one (crew taks next → task next, crew tasks lint → task lint),
+ * or null when nothing is close. Compares as many words as each command name has.
+ */
+export function suggestCommand(words = [], list = commands) {
+  let best = null;
+  for (const c of [...list.map((x) => x.name), 'mcp']) {
+    const n = c.split(' ').length;
+    const typed = words.slice(0, n).join(' ');
+    if (!typed) continue;
+    const dist = editDistance(typed.toLowerCase(), c);
+    // on a tie the longer name wins: "ide list" means "idea list", not "idea"
+    if (dist <= Math.max(1, Math.floor(c.length / 4)) && (!best || dist < best.dist || (dist === best.dist && n > best.n))) best = { name: c, dist, n };
+  }
+  return best?.name ?? null;
+}
+
 export function toolName(cmd) {
   return 'crew_' + cmd.name.replace(/[\s-]+/g, '_');
 }

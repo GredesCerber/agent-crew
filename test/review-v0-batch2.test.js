@@ -99,7 +99,7 @@ test('H1: a step with tests_dir is skipped while there are no tests; with tests 
   const step = { name: 'acceptance', run: 'node -e "process.exit(5)"', tests_dir: 'tests/acceptance', ok_exit_codes: [0, 5] };
   writeFileSync(join(dir, 'crew.config.json'), JSON.stringify({ check: [step] }));
   const empty = crew(['check'], dir);
-  assert.equal(empty.out.status, 'success');
+  assert.equal(empty.out.status, 'warning', 'nothing verified is not success');
   assert.match(empty.out.summary, /no tests yet/);
   mkdirSync(join(dir, 'tests', 'acceptance'), { recursive: true });
   writeFileSync(join(dir, 'tests', 'acceptance', 'test_1_login.py'), 'def test_x(): pass\n');

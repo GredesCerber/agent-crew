@@ -30,6 +30,14 @@ export function run(cmd, args = [], { cwd, allowFail = false, input } = {}) {
         stop_when: 'you do not know where the project is: ask the human',
       });
     }
+    // gh says this in a project that was created locally (crew init) but is not on GitHub yet.
+    if (/no git remotes found|none of the git remotes configured for this repository point to a known GitHub host/i.test(out.stderr)) {
+      throw new CrewError('no_remote', 'This project is not connected to a GitHub repo yet, and crew keeps its tasks and PRs there', {
+        cause_hint: out.stderr.split('\n')[0],
+        retry: 'connect it: crew up <folder> --repo <owner>/<name> (creates the GitHub repo and pushes), or git remote add origin https://github.com/<owner>/<name>.git',
+        stop_when: 'which GitHub repo to use is a human decision: ask them',
+      });
+    }
     throw new CrewError('command_failed', `${cmd} ${args.join(' ')} exited with code ${out.code}`, {
       cause_hint: out.stderr.split('\n').slice(0, 5).join(' | '),
       stop_when: 'the error repeats twice',

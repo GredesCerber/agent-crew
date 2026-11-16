@@ -2,7 +2,7 @@
 // crew: control panel for an agent team. See README.md.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { commands, findCommand, parseArgs, validate } from '../src/core/registry.js';
+import { commands, findCommand, parseArgs, validate, suggestCommand } from '../src/core/registry.js';
 import { CrewError, fail, render } from '../src/core/output.js';
 import { HARNESS_ROOT, identityProblem } from '../src/core/config.js';
 import { recordCommand } from '../src/core/metrics.js';
@@ -38,7 +38,12 @@ async function main() {
   }
   const cmd = findCommand(words);
   if (!cmd) {
-    console.log(render(fail('unknown_command', `Unknown command: ${words.join(' ')}`, { retry: 'crew help' }), { json }));
+    const guess = suggestCommand(words);
+    console.log(render(fail('unknown_command', `Unknown command: ${words.join(' ')}${guess ? `. Did you mean "crew ${guess}"?` : ''}`, {
+      cause_hint: guess ? `closest command: crew ${guess}` : 'no command with a similar name',
+      retry: guess ? `crew ${guess} ...` : 'crew help (the list of commands)',
+      ...(guess ? { artifacts: { suggestion: guess } } : {}),
+    }), { json }));
     process.exitCode = 2;
     return;
   }

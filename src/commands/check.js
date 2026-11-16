@@ -133,11 +133,17 @@ export default {
       const ran = results.filter((r) => !r.skipped).map((r) => r.name);
       const skipped = results.filter((r) => r.skipped).map((r) => (r.no_tests ? `${r.name} (no tests yet)` : r.missing_tools ? `${r.name} (needs ${r.missing_tools.join(', ')}: skipped here, CI runs it)` : r.name));
       const noTests = results.filter((r) => r.no_tests).map((r) => r.name);
-      return ok(`${partial ? `Step ${only} is green (partial run — crew pr open needs a full crew check)` : 'All checks green'} (${ran.join(', ') || 'nothing to check'}${skipped.length ? `; skipped: ${skipped.join(', ')}` : ''})`, {
-        status: partial || leaseNote.length ? 'warning' : 'success',
-        artifacts: { log: logPath, sha, partial, green, ...(lease ? { lease: lease.state } : {}) },
+      // Every step skipped (a fresh project, no tests yet): nothing failed, but nothing was verified either. Say so
+      // instead of "green", so nobody reads it as "the code passes".
+      const nothingRan = !ran.length;
+      const headline = partial ? `Step ${only} is green (partial run — crew pr open needs a full crew check)`
+        : nothingRan ? 'Nothing was verified: every check step was skipped' : 'All checks green';
+      return ok(`${headline} (${ran.length ? ran.join(', ') : 'ran: none'}${skipped.length ? `; skipped: ${skipped.join(', ')}` : ''})`, {
+        status: partial || nothingRan || leaseNote.length ? 'warning' : 'success',
+        artifacts: { log: logPath, sha, partial, green, verified: !nothingRan, ...(lease ? { lease: lease.state } : {}) },
         next_actions: [
           ...leaseNote,
+          ...(nothingRan && !partial ? ['nothing ran: add tests (and code) for at least one step in crew.config.json → checks, then crew check again'] : []),
           ...(noTests.length ? [`no acceptance tests yet (${noTests.join(', ')}) — per AGENTS.md they are written in the task first commit`] : []),
           ...(partial ? ['crew check (full run)'] : dirty ? ['crew commit -m "..."', 'crew check (again, after the commit)', 'crew pr open'] : ['crew pr open']),
         ],

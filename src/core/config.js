@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { pinnedId, cliIdentity } from './session.js';
+import { fail } from './output.js';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,6 +39,18 @@ export const DEFAULT_CONFIG = {
   review: { approvals: 1, approvals_high: 1, fallback_minutes: 30 },
   event: null, // path to events/<name>.json when a hackathon is running
 };
+
+/**
+ * For commands that only make sense inside a crew project: null, or a clear not_a_project error when loadConfig found
+ * no crew.config.json (it then falls back to defaults, which made such commands answer as if a project existed).
+ */
+export function requireProject(loaded) {
+  if (loaded?.path) return null;
+  return fail('not_a_project', `No crew.config.json in ${loaded?.root ?? process.cwd()} or any folder above it: this is not a crew project`, {
+    retry: 'cd into the project folder; a new project: crew init <dir>, or crew up <dir> --repo <owner>/<name>',
+    stop_when: 'you do not know where the project is: ask the human',
+  });
+}
 
 /** Find crew.config.json walking up from cwd. Returns { config, root } (root = project root). */
 export function loadConfig(cwd = process.cwd()) {

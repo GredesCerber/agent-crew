@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ok, warn, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
-import { loadConfig, agentId } from '../core/config.js';
+import { loadConfig, agentId, requireProject } from '../core/config.js';
 import { hasCaptainPowers } from '../core/captain.js';
 import { loadActingCaptain } from './captain.js';
 import {
@@ -55,7 +55,10 @@ const taskLint = {
   summary: 'Validate docs/prd.md: crew-task/crew-epic blocks, acceptance criteria, areas, dependencies (no network)',
   args: [FILE_ARG],
   run({ file = DEFAULT_PRD }) {
-    const { config, root } = loadConfig();
+    const loaded = loadConfig();
+    const outside = requireProject(loaded);
+    if (outside) return outside;
+    const { config, root } = loaded;
     const r = loadPrd({ file, root, areas: config.areas });
     if (r.result) return r.result;
     const { parsed, lint, text } = r;

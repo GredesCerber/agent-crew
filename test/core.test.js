@@ -126,8 +126,11 @@ test('init -> adapters --check -> check -> commit (no GitHub)', () => {
 
   // stack steps are skipped while web/ and api/ do not exist
   const skipped = crew(['check'], proj);
-  assert.equal(skipped.out.status, 'success');
-  assert.match(skipped.out.summary, /skipped/);
+  // nothing ran: not a failure, but not "green" either (a new user must not read it as "the code passes")
+  assert.equal(skipped.out.status, 'warning');
+  assert.match(skipped.out.summary, /Nothing was verified.*skipped/);
+  assert.equal(skipped.out.artifacts.verified, false);
+  assert.equal(skipped.out.artifacts.green, true, 'crew pr open is still allowed on a fresh project');
 
   // a red step -> ci_red with a recovery contract
   const cfgPath = join(proj, 'crew.config.json');
