@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-16
+
 ### Added
 - Captain handover, a rule the repo owner chooses at `crew up` (`--handover off|deputies|team`, `--deputies`, `--fallback_hours`) and changes with `crew captain policy`: off (only the captain), deputies (the captain may hand the role to listed people), team (to anyone with write access), plus an optional automatic fallback to the first deputy after N hours of captain silence. `crew captain handoff @login --hours N` / `crew captain back` record it in a `crew:captain` issue (only the captain's own comments count); `crew captain` shows who acts now. The acting captain can run kickoff, decide on ideas and gets questions that need a human; the digest shows who acts. `crew up` explains the chosen rule in plain words for the repo owner.
 - Ideas: when a person suggests something outside the current task, the agent records it with `crew idea` (English summary plus the person's own words) instead of building it, and keeps working. The captain sees waiting ideas in `crew task next` (a reminder, never a blocker), the digest and the board (Accept / Reject buttons), and decides with `crew idea accept <n>` (a `needs-spec` task, then the usual spec and DoR check) or `crew idea reject <n> --reason`. Only the captain's GitHub login can decide.

@@ -1,6 +1,6 @@
 {
   "name": "@gredescerber/agent-crew",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Vendor-neutral crew of coding agents (Claude Code, Codex, ...) working as one team through GitHub Issues and PRs",
   "type": "module",
   "bin": {
