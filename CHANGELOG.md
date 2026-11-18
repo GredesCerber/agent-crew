@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-11-18
+
 From a first-time-user smoke run.
 
 ### Fixed
