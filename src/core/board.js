@@ -38,7 +38,7 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
     kind: x.kind, number: x.number, title: x.title, risk: x.risk, age_min: x.age, reason: x.reason ?? null, have: x.have ?? null, need: x.need ?? null,
   }));
   // Captain panel: the same status crew digest posts to the pinned issue.
-  const digest = digestModel({ issues, prs, questions, ideas, team, claimComments, config, now });
+  const digest = digestModel({ issues, prs, questions, ideas, team, claimComments, collaborators: members, config, now });
   const ideaList = ideas.map((i) => ({ number: i.number, title: i.title, who: ideaMeta(i)?.who ?? null }));
   return { columns, untracked: other.length, prs: queue, digest, ideas: ideaList, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
 }

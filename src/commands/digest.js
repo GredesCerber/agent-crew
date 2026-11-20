@@ -34,6 +34,7 @@ export function githubData(root) {
     prs: ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [],
     questions: openQuestions(root),
     ideas: loadIdeas(root),
+    collaborators: (gh(['api', 'repos/{owner}/{repo}/collaborators', '--paginate', '--jq', '.[].login'], { cwd: root, allowFail: true }).stdout || '').split('\n').filter(Boolean),
     team: teamOf(root),
     // owner markers of claimed tasks, so "stale" means what the sweep means
     claimComments: claimCommentsOf(root),

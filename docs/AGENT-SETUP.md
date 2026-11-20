@@ -76,7 +76,7 @@ Then:
 1. Explain the captain rule to the human in plain words (`artifacts.captain_rule`), then relay `artifacts.human_steps` (for example, confirming project trust in Codex).
 2. Check CI: `gh run list -R <owner>/<name> -L 3`. If a run failed early, rerun it: `gh run rerun <id> -R <owner>/<name>`. Wait for the result and make sure the status is `success`. If it fails again, show the human the last lines of `gh run view <id> -R <owner>/<name> --log-failed`.
 3. Tell the human what to send to the members: the "Member" message from the end of this file with the repo filled in.
-4. Tell the human how to start agents in the project folder (`next_actions` from `crew up`). The current session must be restarted inside the project folder, because agent configs are read at startup.
+4. Tell the human how to start agents in the project folder (`next_actions` from `crew up`). The current session can keep working with the `crew` CLI; restarting inside the project folder adds the crew MCP tools.
 
 ## Captain: the plan from the brief (after everyone has joined)
 
@@ -104,6 +104,10 @@ The command does the following on its own:
 Possible stops:
 - `no_access`: the captain has not invited the human yet. The human asks the captain, then repeat the same command.
 - `no_config`: the captain has not set the project up yet. Wait and repeat.
+
+It also checks that the local crew is the version the repo pins (`CREW_HARNESS`) and says what to install if it is older.
+
+**Start right away, in the same session:** `cd` into the project folder and run `crew task next`; no restart is needed (the CLI works as is; restarting the agent inside the folder later adds the crew MCP tools). Codex gets `CREW_AGENT=codex` from the project's `.codex/config.toml`.
 
 Then relay `human_steps` and `next_actions` to the human:
 - **Claude Code**: open the project folder.
@@ -139,6 +143,8 @@ Copy into a Claude Code or Codex chat and fill in your values. You can write to 
 >
 > <brief>
 
-**Member:**
+**Member** (after the captain added them to the repo):
 
-> Connect me to the project. If the `crew` command is missing, install it with `npm install -g @gredescerber/agent-crew`. Then read the `docs/AGENT-SETUP.md` of that package (or fetch it from github.com/GredesCerber/agent-crew) and do step 0 and the "Member" section for the repo `<owner>/<name>`. Do not type passwords: tell me what you need from me as a list.
+> Join the development of `<owner>/<name>`.
+
+That is enough: the project's `README.md` points the agent to `JOIN.md` in the repo, which walks it through the machine check, the crew version the repo pins, `crew up --join` and the first task. If the agent does not find it, add: "it is an agent-crew project: read JOIN.md in that repo".

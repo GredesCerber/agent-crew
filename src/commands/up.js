@@ -16,6 +16,8 @@ import github, { DEFAULT_HARNESS, REPO_RE } from './github.js';
 import { mainProtected } from './pr.js';
 import { policyFrom } from './captain.js';
 import { explainPolicy } from '../core/captain.js';
+import { LOCAL_VERSION, compareVersions } from '../core/version.js';
+import { pinnedVersion } from '../core/guard.js';
 
 const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 export const EVENT_PATH = 'events/event.json';
@@ -180,6 +182,9 @@ async function lead(o, sh) {
     const cfgPath = join(root, 'crew.config.json');
     const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
     writeFileSync(cfgPath, JSON.stringify({ ...cfg, captain: me.login, captain_handover: handover.value, ...(o.start ? { event: EVENT_PATH } : {}) }, null, 2) + '\n');
+    // The README's first line tells a newcomer what to say to their agent: put the real repo name in it.
+    const readme = join(root, 'README.md');
+    if (existsSync(readme)) writeFileSync(readme, readFileSync(readme, 'utf8').replaceAll('{{repo}}', repo));
     if (o.start) {
       j.add('event', 'done', `${EVENT_PATH}: ${o.start} — ${o.end}, team ${team.join(', ')}; compliance check enabled`);
     } else {
@@ -327,10 +332,26 @@ async function member(o, sh) {
   checkHosts(j, sh, hosts);
   if (hosts.includes('codex')) j.human.push('Codex: on the first run in the project folder confirm trust (otherwise it will not read .codex/config.toml)');
 
+  // 5. The crew version this repo pins: an older one opens PRs that crew-guard fails (outdated_crew).
+  const pinSpec = (sh('gh', ['variable', 'get', 'CREW_HARNESS', '-R', repo], { allowFail: true }).stdout || '').trim();
+  const pinned = pinnedVersion(pinSpec);
+  const versionCmp = pinned ? compareVersions(LOCAL_VERSION, pinned) : 0;
+  if (!pinned) j.add('version', 'skipped', 'the repo pins no crew version (CREW_HARNESS)');
+  else if (versionCmp < 0) {
+    j.add('version', 'failed', `your crew is ${LOCAL_VERSION}, the repo pins ${pinned}`);
+    j.human.push(`update crew to the version this repo uses: npm install -g ${pinSpec} (then crew up --join ${repo} again)`);
+  } else j.add('version', 'done', versionCmp === 0 ? `crew ${LOCAL_VERSION}, as the repo pins` : `crew ${LOCAL_VERSION} (the repo pins ${pinned}; newer is fine)`);
+
   const failed = j.steps.filter((s) => s.state === 'failed');
   return (failed.length ? warn : ok)(`Done: ${repo} in ${root}, you are ${me.login}${failed.length ? ` (with errors: ${failed.map((s) => s.id).join(', ')})` : ''}`, {
-    artifacts: { root, repo, steps: j.steps, human_steps: j.human },
-    next_actions: [...j.human.map((h) => `for the human: ${h}`), ...launchHints(hosts, root)],
+    artifacts: { root, repo, steps: j.steps, human_steps: j.human, login: me.login },
+    next_actions: [
+      // No restart needed: the CLI works in this very session; the MCP tools come with a restart inside the folder.
+      `start now, in this session: cd ${root}, then crew task next and do what its next_actions say (rules: AGENTS.md there); until the captain gives you an area you take free tasks from anyone`,
+      ...j.human.map((h) => `for the human: ${h}`),
+      'optional: restarting the agent inside the project folder adds the crew MCP tools',
+      ...launchHints(hosts, root),
+    ],
   });
 }
 

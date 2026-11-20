@@ -13,7 +13,7 @@ const minsSince = (now, iso) => Math.max(0, Math.round((now - Date.parse(iso ?? 
 const names = (xs) => (xs ?? []).map((x) => x.name);
 
 /** -> { sections: [{ key, title, lines }], counts } (pure, no network). */
-export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, acting = null, config = {}, now = Date.now() } = {}) {
+export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, acting = null, collaborators = [], config = {}, now = Date.now() } = {}) {
   const lease = config.lease_minutes ?? 45;
   const reviewWait = config.review?.fallback_minutes ?? 30;
   const st = (i) => labelValue(i, 'status');
@@ -42,6 +42,11 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
   const unanswered = questions.filter((q) => !names(q.labels).includes(HUMAN_LABEL))
     .map((q) => `#${q.number} ${q.title} (to ${who(q)}, ${minsSince(now, q.createdAt ?? q.updatedAt)} min)`);
   const ideaLines = ideas.map((i) => { const m = ideaMeta(i); return `#${i.number} ${i.title}${m?.who ? ` (from @${m.who})` : ''}, ${minsSince(now, i.createdAt)} min`; });
+  // People with write access who are not in the crew-team block yet (added in GitHub settings): the captain gives them an
+  // area; meanwhile their agents take free tasks from anyone.
+  const inTeam = new Set((team?.members ?? []).map((m) => m.login.toLowerCase()));
+  const newcomers = team ? collaborators.filter((l) => !inTeam.has(String(l).toLowerCase()) && !/\[bot\]$/.test(l))
+    .map((l) => `@${l}: has access but no area in docs/prd.md (crew-team); until then their agent takes free tasks`) : [];
   const idle = [];
   for (const m of team?.members ?? []) {
     const lc = m.login.toLowerCase();
@@ -60,13 +65,14 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
     { key: 'ideas', title: 'Ideas waiting for the captain', lines: ideaLines },
     { key: 'questions', title: 'Open questions between agents', lines: unanswered },
     { key: 'idle', title: 'Idle members', lines: idle },
+    { key: 'newcomers', title: 'Joined without an area', lines: newcomers },
   ];
   // who decides right now (the captain, or a deputy during a handover / automatic fallback)
   const captain = config.captain ? { captain: config.captain, acting: acting?.login && acting.why !== 'captain' ? acting : null } : null;
   return {
     captain,
     sections,
-    counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, ideas: ideaLines.length, idle: idle.length },
+    counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, ideas: ideaLines.length, idle: idle.length, newcomers: newcomers.length },
   };
 }
 

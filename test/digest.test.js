@@ -38,7 +38,7 @@ test('digest model: human, stale leases, PRs, questions and idle members, withou
   assert.match(sec.prs[1], /#11 .*waits for review 45 min \(slow\)/);
   assert.deepEqual(sec.questions.map((l) => l.split(' ')[0]), ['#21']);
   assert.deepEqual(sec.idle, ['@wohor: nothing in progress, 1 ready task(s) assigned', '@cap: nothing in progress, no ready tasks assigned']);
-  assert.deepEqual(m.counts, { ready: 1, claimed: 2, human: 3, stale: 1, prs: 2, questions: 1, ideas: 0, idle: 2 });
+  assert.deepEqual(m.counts, { ready: 1, claimed: 2, human: 3, stale: 1, prs: 2, questions: 1, ideas: 0, idle: 2, newcomers: 0 });
 });
 
 test('digest markdown never pings anyone (it is rewritten every 15 minutes)', () => {
