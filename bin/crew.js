@@ -9,7 +9,7 @@ import { recordCommand } from '../src/core/metrics.js';
 
 const argv = process.argv.slice(2);
 // Every command that writes under the agent's name must know exactly which session is calling; these do not.
-const NO_IDENTITY = new Set(['status', 'idea list', 'captain', 'doctor', 'board', 'digest', 'pr logs', 'task lint', 'metrics', 'eval', 'labels sync', 'github setup', 'init', 'up', 'adapters build', 'upgrade', 'guard', 'merge-ready', 'task sweep', 'task promote', 'task cleanup', 'worker', 'compliance check', 'compliance disclosure', 'shots']);
+const NO_IDENTITY = new Set(['status', 'idea list', 'captain', 'discover status', 'doctor', 'board', 'digest', 'pr logs', 'task lint', 'metrics', 'eval', 'labels sync', 'github setup', 'init', 'up', 'adapters build', 'upgrade', 'guard', 'merge-ready', 'task sweep', 'task promote', 'task cleanup', 'worker', 'compliance check', 'compliance disclosure', 'shots']);
 const json = argv.includes('--json') || process.env.CREW_JSON === '1' || !process.stdout.isTTY;
 const words = argv.filter((a) => a !== '--json');
 

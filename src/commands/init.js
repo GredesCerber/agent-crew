@@ -45,6 +45,8 @@ export default {
       check: preset.check ?? [],
       scaffold: preset.scaffold ?? [],
       hosts: hosts ? hosts.split(',').map((h) => h.trim()) : DEFAULT_CONFIG.hosts,
+      // a new project researches first: no product code until the plan (crew kickoff --apply switches to build)
+      phase: 'discovery',
       ecc: JSON.parse(readFileSync(join(HARNESS_ROOT, 'ecc', 'profile.json'), 'utf8')),
       mcp: JSON.parse(readFileSync(join(HARNESS_ROOT, 'templates', 'mcp.optional.json'), 'utf8')),
     };

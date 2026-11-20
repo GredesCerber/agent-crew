@@ -1,12 +1,14 @@
 // crew task lint | crew kickoff [--apply] — tasks and epics in Issues from docs/prd.md (deterministic).
 // The core is the pure functions in src/core/prd.js; gh and sleep are passed in as dependencies (tests run without a network).
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { ok, warn, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig, agentId, requireProject } from '../core/config.js';
 import { hasCaptainPowers } from '../core/captain.js';
 import { loadActingCaptain } from './captain.js';
+import { loadDiscoveryStatus } from './discover.js';
+import { phaseOf } from '../core/discovery.js';
 import {
   DEFAULT_PRD, parsePrd, lintPrd, planKickoff, prdApproval, renderTaskBody, renderEpicBody, formatLintItem,
 } from '../core/prd.js';
@@ -176,7 +178,7 @@ export async function applyKickoff(plan, { parsed, prd = DEFAULT_PRD, gh, sleep 
  * crew kickoff: lint → existing issues → plan → (with --apply and an approved PRD) creation.
  * deps: { gh, sleep, root, areas } — for tests.
  */
-export async function runKickoff({ file = DEFAULT_PRD, apply = false } = {}, deps = {}) {
+export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_discovery = false } = {}, deps = {}) {
   const cfg = deps.root ? null : loadConfig();
   const root = deps.root ?? cfg.root;
   const r = loadPrd({ file, root, areas: deps.areas ?? cfg?.config.areas });
@@ -245,6 +247,20 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false } = {}, dep
       stop_when: 'there is no main folder on main — tell the human',
     });
   }
+  // Discovery first: research done, human questions answered, decisions recorded, the PRD reviewed on main.
+  const phase = deps.phase !== undefined ? deps.phase : phaseOf(cfg?.config ?? {});
+  if (phase === 'discovery' && !skip_discovery) {
+    const status = deps.discovery ?? loadDiscoveryStatus(root);
+    if (!status.ready) {
+      return fail('discovery_not_done', `The project is in the discovery phase and it is not done: ${status.missing.length} item(s) left`, {
+        cause_hint: status.missing[0],
+        retry: 'crew discover status — finish the list, then crew kickoff --apply',
+        stop_when: 'the human decides to plan anyway: crew kickoff --apply --skip_discovery (say so in the PR/plan)',
+        next_actions: status.missing,
+        artifacts: { missing: status.missing },
+      });
+    }
+  }
   const assignees = [...new Set(plan.ops.filter((o) => o.op === 'create' && o.assignee).map((o) => o.assignee))];
   const outsiders = assignees.filter((l) => gh(['api', `repos/{owner}/{repo}/collaborators/${l}`]).code !== 0);
   if (outsiders.length) {
@@ -259,7 +275,14 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false } = {}, dep
   const res = await applyKickoff(plan, { parsed, prd: file, gh, sleep: deps.sleep ?? realSleep });
   if (res.status === 'error') return res;
   // In tests (gh is stubbed) we do not touch git unless publishing is stubbed explicitly.
-  const pub = deps.publish ? deps.publish() : deps.gh ? { state: 'skipped' } : publishPlan({ root, me: agentId() });
+  // The plan is in: the project leaves discovery. The phase change is published to main together with the plan.
+  let planFiles = PLAN_DOCS;
+  if (phase === 'discovery' && !deps.gh) {
+    const cfgPath = join(root, 'crew.config.json');
+    writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(readFileSync(cfgPath, 'utf8')), phase: 'build' }, null, 2) + '\n');
+    planFiles = [...PLAN_DOCS, 'crew.config.json'];
+  }
+  const pub = deps.publish ? deps.publish() : deps.gh ? { state: 'skipped' } : publishPlan({ root, me: agentId(), files: planFiles });
   if (pub.state === 'failed') warnings.push(pub.note);
   const artifacts = { apply: true, created: res.created, map: res.map, skipped: plan.ops.filter((o) => o.op === 'skip' || o.op === 'changed').map((o) => o.id), warnings, plan_published: pub.state };
   const summary = `Kickoff: created ${res.created.length}, skipped ${artifacts.skipped.length}`;
@@ -273,6 +296,7 @@ const kickoff = {
   args: [
     FILE_ARG,
     { name: 'apply', type: 'boolean', description: 'create issues (only if the PRD header says status: approved)' },
+    { name: 'skip_discovery', type: 'boolean', description: 'human decision: kick off although the discovery exit criteria are not met' },
   ],
   run(opts) {
     return runKickoff(opts);

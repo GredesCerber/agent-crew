@@ -14,6 +14,7 @@
 
 import { isTrustedComment } from './issues.js';
 import { sameAgent } from './session.js';
+import { phaseProblems } from './discovery.js';
 
 const isBot = (c) => /\[bot\]$|^github-actions$/.test(c?.author?.login ?? '');
 
@@ -230,6 +231,8 @@ export function evaluateGuard({ files = [], body = '', issueBody = '', issueTrus
       files: protectedHits,
     });
   }
+  // The phase (crew.config.json from main): no product code during discovery, no spikes after it.
+  problems.push(...phaseProblems(files, config));
   if (acceptanceHits.length) {
     problems.push({
       rule: 'acceptance_changed',

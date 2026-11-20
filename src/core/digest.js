@@ -4,6 +4,8 @@ import { labelValue, ownerState } from './issues.js';
 import { prQueue } from './queue.js';
 import { questionMeta, HUMAN_LABEL, QUESTION_LABEL } from './questions.js';
 import { IDEA_LABEL, ideaMeta } from './ideas.js';
+import { RESEARCH_LABEL, budgetOf, phaseOf } from './discovery.js';
+import { parseMarkers } from './issues.js';
 
 export const DIGEST_LABEL = 'crew:digest';
 export const DIGEST_TITLE = 'crew digest: team status';
@@ -41,6 +43,13 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
           : `#${x.number} ${x.title}: waits for review ${x.age} min${x.age > reviewWait ? ' (slow)' : ''}`);
   const unanswered = questions.filter((q) => !names(q.labels).includes(HUMAN_LABEL))
     .map((q) => `#${q.number} ${q.title} (to ${who(q)}, ${minsSince(now, q.createdAt ?? q.updatedAt)} min)`);
+  // Research taken longer ago than its budget ([Nh] in the title): one research task must not eat the whole discovery.
+  const overBudget = claimed.filter((i) => names(i.labels).includes(RESEARCH_LABEL) && budgetOf(i.title)).flatMap((i) => {
+    const claims = parseMarkers(claimComments[i.number] ?? []).filter((m) => m.kind === 'claim');
+    const since = claims.length ? claims[claims.length - 1].at ?? claims[claims.length - 1].createdAt : i.updatedAt;
+    const hours = minsSince(now, since) / 60;
+    return hours > budgetOf(i.title) ? [`#${i.number} ${i.title} (${who(i)}, ${hours.toFixed(1)} h of ${budgetOf(i.title)} h)`] : [];
+  });
   const ideaLines = ideas.map((i) => { const m = ideaMeta(i); return `#${i.number} ${i.title}${m?.who ? ` (from @${m.who})` : ''}, ${minsSince(now, i.createdAt)} min`; });
   // People with write access who are not in the crew-team block yet (added in GitHub settings): the captain gives them an
   // area; meanwhile their agents take free tasks from anyone.
@@ -66,11 +75,13 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
     { key: 'questions', title: 'Open questions between agents', lines: unanswered },
     { key: 'idle', title: 'Idle members', lines: idle },
     { key: 'newcomers', title: 'Joined without an area', lines: newcomers },
+    { key: 'research', title: 'Research over budget', lines: overBudget },
   ];
   // who decides right now (the captain, or a deputy during a handover / automatic fallback)
   const captain = config.captain ? { captain: config.captain, acting: acting?.login && acting.why !== 'captain' ? acting : null } : null;
   return {
     captain,
+    phase: phaseOf(config),
     sections,
     counts: { ready: ready.length, claimed: claimed.length, human: human.length + blocked.length, stale: stale.length, prs: prLines.length, questions: unanswered.length, ideas: ideaLines.length, idle: idle.length, newcomers: newcomers.length },
   };
@@ -84,6 +95,7 @@ export function renderDigest(model, { now = Date.now() } = {}) {
     `**${c.ready}** ready · **${c.claimed}** in progress · **${c.human}** need a human · **${c.stale}** stale · **${c.prs}** PRs waiting`, ''];
   // The issue is rewritten every 15 minutes: break @mentions (ours and any in titles) so nobody gets pinged each time.
   const quiet = (l) => l.replace(/@(?=[\w-])/g, '@​');
+  if (model.phase === 'discovery') out.push('**Phase:** discovery: research and decisions, no product code until the plan (`crew discover status`)', '');
   const cap = model.captain;
   if (cap) out.push(quiet(cap.acting ? `**Captain:** @${cap.captain}; **acting now:** @${cap.acting.login} (${cap.acting.why === 'handoff' ? `handed over until ${cap.acting.until}` : 'the captain has been quiet, automatic fallback'})` : `**Captain:** @${cap.captain}`), '');
   for (const s of model.sections) out.push(`### ${s.title}`, ...(s.lines.length ? s.lines.map((l) => `- ${quiet(l)}`) : ['- none']), '');

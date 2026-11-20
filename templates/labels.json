@@ -21,5 +21,6 @@
   {"name": "needs-human", "color": "e99695", "description": "only a human can decide this (scope, contract, product choice)"},
   {"name": "crew:idea", "color": "fef2c0", "description": "an idea someone suggested; the captain accepts it as a task or rejects it"},
   {"name": "crew:captain", "color": "fbca04", "description": "the captain handover log: who acts as captain (crew captain handoff/back)"},
+  {"name": "crew:research", "color": "c2e0c6", "description": "a discovery research task: the answer is a document under docs/, no product code"},
   {"name": "crew:digest", "color": "bfdadc", "description": "the pinned team status issue, rewritten by crew digest"}
 ]
