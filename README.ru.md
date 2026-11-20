@@ -157,6 +157,8 @@ crew github setup --apply   # выполнить
 
 ### 4. Подключиться к готовому проекту (участники)
 
+**Проще всего:** когда капитан добавил вас в репо, напишите своему агенту на любом языке: **«Присоединись к разработке owner/name»**. README проекта отправит его в `JOIN.md`: проверка машины, версия crew, закреплённая в репо (`CREW_HARNESS`), `crew up --join` и первая задача. От вас нужен только вход в GitHub, если агент попросит; перезапуск не нужен. Вручную это одна команда:
+
 ```bash
 crew up --join owner/name
 ```
@@ -164,6 +166,10 @@ crew up --join owner/name
 Команда принимает приглашение, клонирует репо, настраивает git и запускает `crew adapters build`, который создаёт локальные конфиги агентов (`.mcp.json`, `.codex/config.toml`, навыки, роли). Они зависят от машины и не коммитятся; `crew task claim` копирует их в каждый worktree задачи.
 
 Имя агента в задачах и коммитах это `CREW_AGENT` плюс имя машины (`claude@alice-laptop`), его добавляет `crew`. Вторая сессия на той же машине получает своё имя автоматически от MCP-сервера crew (`claude@alice-laptop#2`); для ревью обе считаются одним агентом, поэтому одобрить друг друга не могут. В терминале вне папки задачи, когда сессий несколько, crew просит пользоваться MCP-инструментами, а не угадывает (`ambiguous_agent`).
+
+### 5a. Discovery: исследование до плана (капитан и все)
+
+Новый командный проект начинается в **фазе discovery** (`crew.config.json` → `"phase": "discovery"`): продуктового кода ещё нет, crew-guard пропускает только PR в `docs/` и `spikes/` (одноразовые эксперименты, которые не становятся кодом продукта). Агент капитана выписывает открытые вопросы ТЗ блоками `crew-research` в `docs/discovery.md`; `crew discover plan --apply` делает из них задачи-исследования для владельцев зон. Каждая заканчивается документом: факты с источниками, допущения помечены, позиция. Споры идут в комментариях к PR и через `crew ask`, вопросы к организаторам через `crew ask --human`, принятые решения в `docs/decisions.md`. PRD пишется из всего этого PR'ом, который ревьюит агент другого вендора. `crew discover status` показывает, что осталось; `crew kickoff --apply` ждёт его и переключает фазу на `build` (скилл `crew-discovery`).
 
 ### 5. План: ТЗ -> PRD -> задачи (капитан)
 
@@ -188,6 +194,10 @@ crew kickoff --apply      # создать issues, когда PRD одобрен
 > Work the crew-workflow loop without stopping: run `crew task next --wait 20`, do what its next_actions say, then run it again. Stop after three "no free tasks" answers in a row.
 
 Участники никогда не планируют; `crew kickoff` запускает только капитан.
+
+### Соло: один человек, один агент
+
+`crew init <папка> --solo` (или `crew up ... --solo`) оставляет полезное и убирает командную обвязку: без фазы discovery, без ревью вторым агентом (`review.approvals: 0`), один хост (Claude, если не задан `--hosts`), без передачи капитанства. Проверки CI, правила crew-guard о защищённых файлах и приёмочных тестах и защита `main` остаются; PR сливается, как только они зелёные, а `risk:high` по-прежнему ждёт вас. Задачи: issue с критериями Given/When/Then (`crew task status <n> ready`) или PRD и `crew kickoff`.
 
 ## Концепции
 
@@ -247,6 +257,7 @@ bob: api
 | `crew idea "..." [--original "..."] [--from_person логин] [--task N]` | записать идею, которую человек предложил вне текущей задачи; капитан видит её в `crew task next`, сводке и на доске |
 | `crew idea list` / `crew idea accept <n> [--area a] [--priority high\|low]` / `crew idea reject <n> --reason "..."` | капитан: решить по идеям; accept превращает идею в задачу `needs-spec` |
 | `crew captain` / `crew captain handoff @логин [--hours N]` / `crew captain back` / `crew captain policy --mode off\|deputies\|team [--deputies a,b] [--fallback_hours N]` | кто сейчас капитан; передать роль на время (если проект разрешает); само правило, которое владелец репо выбирает при `crew up` |
+| `crew discover plan [--apply]` / `crew discover status` | фаза discovery: вопросы из `docs/discovery.md` становятся задачами-исследованиями (капитан); status показывает, что осталось до `crew kickoff --apply` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | вопросы к тебе и ответы на твои / ответить и закрыть (или передать человеку с `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | только человек: снять «бумажное» правило crew-guard (closes, agent_trailer, not_crew_pr) для текущего коммита PR, сделанного без crew; ревью всё равно нужно |
 | `crew pr logs <n>` | почему PR красный: упавший шаг из лога CI, без браузера |

@@ -152,7 +152,8 @@ async function lead(o, sh) {
   }
   if (!!o.start !== !!o.end) return fail('bad_input', '--start and --end must be given together', { retry: 'crew up ... --start <ISO> --end <ISO>' });
   // The captain handover rule is the repo owner's choice (asked before crew up, see docs/AGENT-SETUP.md).
-  const handover = policyFrom({ mode: o.handover ?? (o.deputies ? 'deputies' : 'off'), deputies: o.deputies, fallback_hours: o.fallback_hours });
+  // solo: one person, nobody to hand the captain role to
+  const handover = policyFrom({ mode: o.solo ? 'off' : o.handover ?? (o.deputies ? 'deputies' : 'off'), deputies: o.solo ? '' : o.deputies, fallback_hours: o.solo ? 0 : o.fallback_hours });
   if (handover.error) return fail('bad_input', `captain handover: ${handover.error}`, { retry: 'crew up ... --handover off|deputies|team [--deputies alice,bob] [--fallback_hours 3]' });
   const root = resolve(o.dir ?? repo.split('/')[1]);
 
@@ -162,7 +163,7 @@ async function lead(o, sh) {
   // 2. Project
   if (existsSync(join(root, 'crew.config.json'))) j.add('init', 'skipped', `${root} already exists`);
   else {
-    const r = await init.run({ dir: root, stack, hosts: o.hosts });
+    const r = await init.run({ dir: root, stack, hosts: o.hosts, solo: !!o.solo });
     if (r.status === 'error') return stop(j, r.error.code, `crew init: ${r.summary}`, r.error);
     j.add('init', 'done', r.summary);
   }
@@ -371,6 +372,7 @@ export default {
     { name: 'event_name', type: 'string', description: 'captain: event name for events/event.json' },
     { name: 'hosts', type: 'string', description: 'captain: agent hosts, comma-separated (default claude,codex)' },
     { name: 'harness', type: 'string', description: `captain: CREW_HARNESS value (default ${DEFAULT_HARNESS})` },
+    { name: 'solo', type: 'boolean', description: 'captain: one person with one agent (no second-agent review, no discovery phase, no handover)' },
     { name: 'handover', type: 'string', enum: ['off', 'deputies', 'team'], description: 'captain: may the captain role be handed over? off (no), deputies (only to --deputies), team (anyone with write access); ask the repo owner' },
     { name: 'deputies', type: 'string', description: 'captain: GitHub logins who may act as captain, comma-separated (the first one is the automatic fallback)' },
     { name: 'fallback_hours', type: 'number', description: 'captain: hours of captain silence before the first deputy acts automatically (0 = never)' },

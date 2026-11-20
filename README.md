@@ -157,6 +157,8 @@ Re-running is safe. The repo is taken from the current folder (`gh repo view`) o
 
 ### 4. Join an existing project (members)
 
+**The easy way:** once the captain added you to the repo, tell your agent, in any language: **"Join the development of owner/name"**. The project's README points it to `JOIN.md`, which walks it through the machine check, the crew version the repo pins (`CREW_HARNESS`), `crew up --join` and the first task. You only log in to GitHub when it asks; no restart is needed. By hand it is one command:
+
 ```bash
 crew up --join owner/name
 ```
@@ -164,6 +166,10 @@ crew up --join owner/name
 This accepts the invitation, clones the repo, configures git and runs `crew adapters build`, which creates the local agent configs (`.mcp.json`, `.codex/config.toml`, skills, roles). They depend on the machine and are not committed; `crew task claim` copies them into each task worktree.
 
 An agent's name in tasks and commits is `CREW_AGENT` plus the machine name (`claude@alice-laptop`), added by `crew`. A second session on the same machine gets its own name automatically from the crew MCP server (`claude@alice-laptop#2`); the two count as one agent for review, so neither can approve the other. In a terminal outside your task folder, with several sessions running, crew asks you to use the MCP tools instead of guessing (`ambiguous_agent`).
+
+### 5a. Discovery: research before the plan (captain and everyone)
+
+A new team project starts in the **discovery phase** (`crew.config.json` → `"phase": "discovery"`): no product code yet; crew-guard lets PRs touch only `docs/` and `spikes/` (throwaway experiments that never become product code). The captain's agent lists the open questions of the brief as `crew-research` blocks in `docs/discovery.md`; `crew discover plan --apply` makes them research tasks for the area owners. Each ends with a document: facts with sources, assumptions marked, a position. Disagreements go through PR comments and `crew ask`, questions for the organizers through `crew ask --human`, agreed decisions into `docs/decisions.md`. The PRD is written from all that, as a PR reviewed by another vendor's agent. `crew discover status` lists what is left; `crew kickoff --apply` waits for it and switches the phase to `build` (skill `crew-discovery`).
 
 ### 5. Plan: brief -> PRD -> tasks (captain)
 
@@ -188,6 +194,10 @@ Details in [crew kickoff](#crew-kickoff).
 > Work the crew-workflow loop without stopping: run `crew task next --wait 20`, do what its next_actions say, then run it again. Stop after three "no free tasks" answers in a row.
 
 Members never plan; only the captain runs `crew kickoff`.
+
+### Solo: one person, one agent
+
+`crew init <dir> --solo` (or `crew up ... --solo`) keeps the useful part and drops the team machinery: no discovery gate, no second agent to review (`review.approvals: 0`), one host (Claude unless `--hosts`), no captain handover. CI checks, the protected-file and acceptance-test rules of crew-guard and the protected `main` stay; a PR merges once they are green, and `risk:high` still waits for you. Tasks are issues with Given/When/Then criteria (`crew task status <n> ready`) or a PRD with `crew kickoff`.
 
 ## Concepts
 
@@ -247,6 +257,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew idea "..." [--original "..."] [--from_person login] [--task N]` | record an idea a person suggested outside the current task; the captain sees it in `crew task next`, the digest and the board |
 | `crew idea list` / `crew idea accept <n> [--area a] [--priority high\|low]` / `crew idea reject <n> --reason "..."` | captain: decide on ideas; accept turns one into a `needs-spec` task |
 | `crew captain` / `crew captain handoff @login [--hours N]` / `crew captain back` / `crew captain policy --mode off\|deputies\|team [--deputies a,b] [--fallback_hours N]` | who acts as captain now; hand the role over for a while (if the project allows it); the rule itself, chosen by the repo owner at `crew up` |
+| `crew discover plan [--apply]` / `crew discover status` | discovery phase: research questions of `docs/discovery.md` become tasks (captain); status lists what is left before `crew kickoff --apply` |
 | `crew inbox [--ack N]` / `crew answer N --text "..." [--human]` | questions waiting for you and answers to yours / answer and close (or hand to a human with `needs-human`) |
 | `crew pr waive <n> --rule <r> --reason "..."` | human only: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit of a PR made outside crew; the review is still required |
 | `crew pr logs <n>` | why a PR check is red: the failing step of the CI log, no browser needed |

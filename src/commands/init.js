@@ -18,8 +18,9 @@ export default {
     { name: 'stack', type: 'string', description: 'stack preset from templates/stacks (default web-fastapi)' },
     { name: 'hosts', type: 'string', description: 'hosts, comma-separated (default claude,codex)' },
     { name: 'force', type: 'boolean', description: 'write into a non-empty folder' },
+    { name: 'solo', type: 'boolean', description: 'one person with one agent: no second-agent review, no discovery phase, one host (claude unless --hosts)' },
   ],
-  async run({ dir, stack = 'web-fastapi', hosts, force }) {
+  async run({ dir, stack = 'web-fastapi', hosts, force, solo = false }) {
     const root = resolve(dir);
     if (existsSync(root) && readdirSync(root).length && !force) {
       return fail('dir_not_empty', `${root} is not empty`, { retry: `crew init ${dir} --force (if you really need to)` });
@@ -44,9 +45,12 @@ export default {
       areas: preset.areas ?? DEFAULT_CONFIG.areas,
       check: preset.check ?? [],
       scaffold: preset.scaffold ?? [],
-      hosts: hosts ? hosts.split(',').map((h) => h.trim()) : DEFAULT_CONFIG.hosts,
-      // a new project researches first: no product code until the plan (crew kickoff --apply switches to build)
-      phase: 'discovery',
+      hosts: hosts ? hosts.split(',').map((h) => h.trim()) : solo ? ['claude'] : DEFAULT_CONFIG.hosts,
+      // a new team project researches first: no product code until the plan (crew kickoff --apply switches to build).
+      // Solo: one person decides alone, so no discovery gate and no second agent to review: CI checks and the
+      // protected-file rules stay, a PR merges when they are green; risk:high still waits for the person to merge.
+      phase: solo ? 'build' : 'discovery',
+      ...(solo ? { solo: true, review: { ...DEFAULT_CONFIG.review, approvals: 0, approvals_high: 0 } } : {}),
       ecc: JSON.parse(readFileSync(join(HARNESS_ROOT, 'ecc', 'profile.json'), 'utf8')),
       mcp: JSON.parse(readFileSync(join(HARNESS_ROOT, 'templates', 'mcp.optional.json'), 'utf8')),
     };
@@ -63,9 +67,15 @@ export default {
     // 5. git
     if (!existsSync(join(root, '.git'))) git(['init', '-b', 'main'], { cwd: root });
 
-    return ok(`Project created: ${root} (stack ${stack}, hosts ${config.hosts.join(', ')})`, {
-      artifacts: { root, stack, hosts: config.hosts, files: files.length },
-      next_actions: [
+    return ok(`Project created: ${root} (stack ${stack}, hosts ${config.hosts.join(', ')}${solo ? ', solo' : ''})`, {
+      artifacts: { root, stack, hosts: config.hosts, files: files.length, solo, phase: config.phase },
+      next_actions: solo ? [
+        `cd ${dir}`,
+        'git add -A && git commit -m "chore: crew init"',
+        'gh repo create <you>/<name> --private --source . --push (or crew up for the whole setup)',
+        'crew github setup --apply (main protection: CI must be green; no review by a second agent in solo)',
+        'tasks: write issues with Given/When/Then criteria and crew task status <n> ready, or a PRD and crew kickoff; your agent: crew task next',
+      ] : [
         `cd ${dir}`,
         'git add -A && git commit -m "chore: crew init"',
         'gh repo create <org>/<name> --private --source . --push',
