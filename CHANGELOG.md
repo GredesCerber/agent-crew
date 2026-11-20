@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-11-20
+
 ### Added
 - **Join with one message.** Once added to the repo, a newcomer tells their agent "Join the development of owner/repo": the product README points to `JOIN.md`, which walks the agent through the machine check, the crew version the repo pins, `crew up --join` and the first task. `crew up --join` checks the local crew against `CREW_HARNESS` and says to start right away in the same session (a restart only adds the MCP tools). Codex projects set `CREW_AGENT=codex` for Codex terminal commands. The digest lists people with access but no area ("Joined without an area").
 - **Discovery phase.** New team projects start in `phase: discovery`: crew-guard lets PRs touch only `docs/` and `spikes/` (`discovery_phase`), and after the plan `spikes/` is not changed any more (`spike_in_build`). `crew discover plan [--apply]` turns the `crew-research` blocks of `docs/discovery.md` into research tasks (time budget in the title; rules: facts with sources vs assumptions, a position, the decisions log, spikes, `--human` questions for organizers). `crew discover status` checks the exit criteria (research closed, no human questions open, a decision recorded, the exit checklist, the PRD on main through a reviewed PR); `crew kickoff --apply` waits for it (`--skip_discovery` is the human override) and switches the phase to `build`. The digest shows the phase and research over budget. New templates `docs/discovery.md`, `docs/decisions.md` and the skill `crew-discovery`. Existing projects (no `phase`) stay in build.
