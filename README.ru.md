@@ -36,7 +36,8 @@ agent-crew отвечает на это небольшим протоколом 
 
 ```mermaid
 flowchart LR
-    B[ТЗ<br/>docs/brief.md] --> P[Planner<br/>crew-kickoff]
+    B[ТЗ<br/>docs/brief.md] --> D[Discovery<br/>исследования, решения]
+    D --> P[Planner<br/>PRD, crew-kickoff]
     P --> Q[(GitHub Issues<br/>очередь задач)]
     Q -->|crew task next / claim| W1[Claude<br/>ноутбук alice]
     Q -->|crew task next / claim| W2[Codex<br/>ноутбук bob]
@@ -125,11 +126,12 @@ AGENTS.md                ← главные правила для всех аг�
 CLAUDE.md                ← одна строка: @AGENTS.md (Claude читает правила оттуда)
 crew.config.json         ← зоны, проверки, уровни моделей, MCP
 agents/roles/            ← analyst, planner, builder, reviewer, integrator + помощники scout, implementer
-agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis
+agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis, crew-discovery
 .claude/ .mcp.json       ← сгенерировано для Claude Code (+ плагин ECC)
 .codex/ .agents/skills/  ← сгенерировано для Codex
 .github/                 ← шаблоны задач и PR, CI-проверки (crew.yml) и правила PR (crew-guard.yml)
-contracts/ tests/ docs/  ← контракты API, приёмочные тесты, ТЗ и плейбуки
+contracts/ tests/ docs/  ← контракты API, приёмочные тесты, ТЗ, discovery.md, decisions.md, плейбуки
+README.md JOIN.md        ← первая строка говорит новичку, что написать своему агенту; JOIN.md для этого агента
 events/                  ← необязательные правила события (окно времени, состав команды)
 ```
 
@@ -167,11 +169,11 @@ crew up --join owner/name
 
 Имя агента в задачах и коммитах это `CREW_AGENT` плюс имя машины (`claude@alice-laptop`), его добавляет `crew`. Вторая сессия на той же машине получает своё имя автоматически от MCP-сервера crew (`claude@alice-laptop#2`); для ревью обе считаются одним агентом, поэтому одобрить друг друга не могут. В терминале вне папки задачи, когда сессий несколько, crew просит пользоваться MCP-инструментами, а не угадывает (`ambiguous_agent`).
 
-### 5a. Discovery: исследование до плана (капитан и все)
+### 5. Discovery: исследование до плана (капитан и все)
 
 Новый командный проект начинается в **фазе discovery** (`crew.config.json` → `"phase": "discovery"`): продуктового кода ещё нет, crew-guard пропускает только PR в `docs/` и `spikes/` (одноразовые эксперименты, которые не становятся кодом продукта). Агент капитана выписывает открытые вопросы ТЗ блоками `crew-research` в `docs/discovery.md`; `crew discover plan --apply` делает из них задачи-исследования для владельцев зон. Каждая заканчивается документом: факты с источниками, допущения помечены, позиция. Споры идут в комментариях к PR и через `crew ask`, вопросы к организаторам через `crew ask --human`, принятые решения в `docs/decisions.md`. PRD пишется из всего этого PR'ом, который ревьюит агент другого вендора. `crew discover status` показывает, что осталось; `crew kickoff --apply` ждёт его и переключает фазу на `build` (скилл `crew-discovery`).
 
-### 5. План: ТЗ -> PRD -> задачи (капитан)
+### 6. План: ТЗ -> PRD -> задачи (капитан)
 
 Капитан кладёт ТЗ в `docs/brief.md`, а агент-planner превращает его в `docs/prd.md` (навыки `crew-brief-analysis` и `crew-kickoff`). В PRD есть блок `crew-team` (кто за какую зону отвечает, кто ревьюит) и блоки `crew-task` / `crew-epic`. Дальше:
 
@@ -183,13 +185,13 @@ crew kickoff --apply      # создать issues, когда PRD одобрен
 
 Подробности в разделе [crew kickoff](#crew-kickoff).
 
-### 6. Запустить агентов
+### 7. Запустить агентов
 
 **Claude Code**: откройте папку проекта; он сам прочитает `CLAUDE.md` -> `AGENTS.md` и подключит MCP-сервер `crew`. Затем:
 
 > /loop 10m Work the crew-workflow loop
 
-**Codex**: запустите `codex` в корне проекта и подтвердите доверие проекту (иначе он не прочитает `.codex/config.toml`). В Codex нет `/loop`, поэтому цикл крутится в чате поверх `crew task next --wait`:
+**Codex**: запустите `codex` в корне проекта и подтвердите доверие проекту (иначе он не прочитает `.codex/config.toml`, который заодно даёт его командам в терминале `CREW_AGENT=codex`). В Codex нет `/loop`, поэтому цикл крутится в чате поверх `crew task next --wait`:
 
 > Work the crew-workflow loop without stopping: run `crew task next --wait 20`, do what its next_actions say, then run it again. Stop after three "no free tasks" answers in a row.
 
@@ -217,14 +219,26 @@ bob: api
 `crew task next` сначала предлагает агенту человека его собственные задачи, потом ничьи, потом чужие зоны («помоги хозяину»). Роль `review` отмечает ревьюеров команды.
 
 ### Очередь «сначала ревью»
-`crew task next` сначала обслуживает команду, потом себя: свой PR, которому нужны правки, затем готовый к мержу PR, затем PR, ждущий вашего ревью, и только потом новая задача. Так работа не копится за ревью.
+`crew task next` сначала обслуживает команду, потом себя: свой PR, которому нужны правки, затем вопрос, который вам задал другой агент, затем ответ на ваш вопрос, затем ваша незаконченная задача на этой машине (`resume`, если сессия умерла), затем готовый к мержу PR, затем PR, ждущий вашего ревью, и только потом новая задача. Так работа не копится за ревью.
+
+### Капитан и передача роли
+Капитан тот, кто запустил `crew up` (`crew.config.json` → `captain`): только он планирует (`crew kickoff --apply`, `crew discover plan --apply`), решает по идеям и получает вопросы, которым нужен человек. Владелец репо при `crew up` выбирает, можно ли передавать роль: `--handover off` (по умолчанию), `deputies` (только тем, кто в `--deputies`), `team` (любому с правом записи), и по желанию автоматическую подмену первым заместителем, если капитан молчит `--fallback_hours` часов. Капитан передаёт роль `crew captain handoff @логин --hours N` и забирает `crew captain back`; `crew captain` показывает, кто сейчас капитан. Правило меняется потом через `crew captain policy`.
+
+### Идеи и вопросы
+Если человек предлагает что-то вне текущей задачи, агент не делает это сам: `crew idea` записывает идею для капитана, а он принимает её задачей `needs-spec` (`crew idea accept`) или отклоняет с причиной. Если агенту нужно что-то из чужой зоны, он спрашивает владельца через `crew ask <зона>`; ответ приходит через `crew task next`. Решения, которые может принять только человек, уходят капитану с `--human`. Ничего не решается «в чате»: всё это issue, которые видят люди.
+
+### Статус команды без LLM
+`crew digest` (CI держит его в закреплённом issue, обновляя каждые 15 минут) и `crew board` (локальная страница с панелью капитана) показывают, что ждёт человека, зависшие аренды, PR в ожидании, открытые вопросы, идеи, кто простаивает, у кого есть доступ, но нет зоны, фазу и исследования сверх бюджета. Держать агента, который опрашивает репо, не нужно.
 
 ### Перекрёстное ревью и `crew-guard`
 Код Claude ревьюит Codex и наоборот: разные модели ловят разные ошибки. `crew-guard` это коммит-статус на каждом PR:
 
 - `failure`, если PR меняет правила агентов или CI (`crew.config.json`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `agents/**`, `events/**`). Агентам это нельзя совсем; правила меняет мейнтейнер;
 - `failure`, если PR меняет или удаляет **существующий** приёмочный тест, а его задача этого не разрешает (поле `changes_acceptance` задачи в PRD). Новые тесты добавлять можно;
-- `failure`, если ревьюер попросил правки; `pending`, пока ждёт ревью; `success`, когда ревью сделал **другой агент** на текущем коммите (`crew pr review <n> --verdict approve`), для `risk:high` два ревью;
+- `failure`, если ревьюер попросил правки; `pending`, пока ждёт ревью; `success`, когда ревью сделал **другой агент** на текущем коммите (`crew pr review <n> --verdict approve`). Другая сессия того же агента на той же машине (`claude@pc#2`), агент, написавший коммиты, и боты не засчитываются. PR с `risk:high` не сливается сам: после ревью его сливает человек (или `crew merge-ready` в CI);
+- `failure` в фазе discovery, если PR трогает что-то кроме `docs/` и `spikes/` (`discovery_phase`), а после неё, если PR меняет `spikes/` (`spike_in_build`);
+- `failure`, если PR открыт crew старше версии, закреплённой в `CREW_HARNESS` (`outdated_crew`): обновите crew и запустите `crew pr open` ещё раз;
+- человек может снять «бумажные» правила (`closes`, `agent_trailer`, `not_crew_pr`) для одного коммита PR, сделанного без crew, через `crew pr waive`; защищённые файлы, приёмочные тесты и само ревью снять нельзя;
 - для `risk:high` тесты и код пишут **разные агенты**: задача на тесты (`tests_for`) кладёт их в `tests/pending/<T>/`, а основная задача обязана перенести их в `tests/acceptance/` без единой правки (иначе `failure`); `crew task claim` не даёт автору тестов взять код;
 - кто ревьюит, задаётся в `crew.config.json -> review`: по умолчанию агент другого вендора, а если такого нет 30 минут, любой другой агент. Команда только с Claude использует `"require": "other-agent"` или `"hosts": ["claude"]`;
 - workflow `crew-guard.yml` берётся из `main`, а не из ветки PR (`pull_request_target`), и код PR не запускает, поэтому PR не может ослабить проверку сам себе;
@@ -241,7 +255,7 @@ bob: api
 
 | Команда | Что делает |
 |---|---|
-| `crew task next [--area web] [--tier low] [--wait 20]` | следующее дело для вас: свой PR на правки, PR на мерж, ревью или свободная задача под вашу зону и уровень модели; с `--wait N` в простое опрашивает раз в минуту до N минут (цикл в чате для Codex) |
+| `crew task next [--area web] [--tier low] [--wait 20]` | следующее дело для вас: свой PR на правки, вопрос, на который надо ответить, или ответ на ваш, ваша незаконченная задача (`resume`), PR на мерж, ревью или свободная задача под вашу зону и уровень модели; с `--wait N` в простое опрашивает раз в минуту до N минут (цикл в чате для Codex) |
 | `crew task claim <id>` | взять задачу: метка, аренда, ветка `crew/<id>-...`, отдельный worktree |
 | `crew check` | прогнать линтер/типы/тесты из `crew.config.json`; коротко про ошибки, полный лог в `.crew/logs/`; у шага есть `timeout_s` (по умолчанию 600), зависший шаг убивается и даёт `ci_red` |
 | `crew commit -m "feat: ..."` | коммит с trailers `Agent` и `Issue` |
@@ -251,7 +265,7 @@ bob: api
 | `crew task status <id> blocked --note "..."` | сменить статус и оставить хендофф |
 | `crew task release <id>` / `heartbeat <id>` | вернуть задачу / продлить аренду (только свою; чужую человек с `--force`) |
 | `crew shots before\|after --url <страница> [--name <экран>]` | скриншот «до» и «после» (Playwright) для задачи, меняющей интерфейс; `crew pr open` показывает их таблицей Before / After |
-| `crew board [--port 4747]` | локальная доска задач в браузере: очередь по статусам, ждущие PR; вручную назначить исполнителя, статус и приоритет (без токенов агентов) |
+| `crew board [--port 4747]` | локальная доска задач в браузере: панель капитана (счётчики, что ждёт человека, идеи с кнопками Принять / Отклонить), очередь по статусам, ждущие PR; вручную назначить исполнителя, статус и приоритет (без токенов агентов) |
 | `crew upgrade [--apply]` | обновить существующий проект до установленной версии (правила, навыки, workflows, конфиги агентов; переводит проекты с hk); `--apply` открывает PR |
 | `crew ask <зона\|@логин> --text "..." [--task N] [--human]` | вопрос хозяину зоны; вопрос — это issue (`crew:question`), ответ приходит в `crew task next` |
 | `crew idea "..." [--original "..."] [--from_person логин] [--task N]` | записать идею, которую человек предложил вне текущей задачи; капитан видит её в `crew task next`, сводке и на доске |
@@ -262,7 +276,7 @@ bob: api
 | `crew pr waive <n> --rule <r> --reason "..."` | только человек: снять «бумажное» правило crew-guard (closes, agent_trailer, not_crew_pr) для текущего коммита PR, сделанного без crew; ревью всё равно нужно |
 | `crew pr logs <n>` | почему PR красный: упавший шаг из лога CI, без браузера |
 | `crew merge-ready [--dry_run]` | смержить готовые PR (ревью, зелёные check и crew-guard), которые не сольются сами; запускает job в CI по расписанию, сессия агента не нужна |
-| `crew digest [--post]` | сводка команды без LLM: что ждёт человека, зависшие аренды, PR в ожидании, открытые вопросы, кто простаивает; job в CI по расписанию держит её в закреплённом issue |
+| `crew digest [--post]` | сводка команды без LLM: что ждёт человека, зависшие аренды, PR в ожидании, открытые вопросы, идеи, кто простаивает, новички без зоны, фаза, исследования сверх бюджета, кто сейчас капитан; job в CI по расписанию держит её в закреплённом issue |
 | `crew task cleanup [--dry_run]` | убрать worktree закрытых задач (только без незакоммиченных правок и с работой, уже сохранённой в main или на GitHub) |
 | `crew task lint` | проверить `docs/prd.md` без сети: все ошибки сразу (строка, id, правило) |
 | `crew task sweep` / `crew task promote` | вернуть просроченные аренды в очередь / перевести `waiting` в `ready`, когда зависимости закрыты (запускает CI) |
@@ -299,7 +313,7 @@ MCP-сервер запущен в корне проекта, поэтому `cr
 
 ## crew kickoff
 
-Planner (навык `crew-kickoff`) читает `docs/brief.md` и `docs/brief-analysis.md` и пишет только `docs/prd.md` с блоками `crew-team`, `crew-task` и `crew-epic` ([формат](skills/crew-kickoff/task-format.md)). Issues создаёт код:
+Planner (навык `crew-kickoff`) читает `docs/brief.md`, `docs/brief-analysis.md`, исследования в `docs/research/` и `docs/decisions.md` и пишет только `docs/prd.md` с блоками `crew-team`, `crew-task` и `crew-epic` ([формат](skills/crew-kickoff/task-format.md)). Issues создаёт код:
 
 ```bash
 crew task lint            # проверить PRD без сети: все ошибки сразу (строка, id, правило)
@@ -307,7 +321,7 @@ crew kickoff              # план (dry-run): что создастся, ст�
 crew kickoff --apply      # создать задачи и эпики, только если PRD одобрен
 ```
 
-- **Одобрение** это первая строка PRD `<!-- crew:prd status: approved by: <login> at: <ISO> -->`. Без неё `--apply` отвечает `plan_not_approved`. Применять может только капитан. `--apply` также отказывает с `team_not_collaborator`, если в блоке `crew-team` указан человек, который не является участником репо.
+- **Одобрение** это первая строка PRD `<!-- crew:prd status: approved by: <login> at: <ISO> -->`. Без неё `--apply` отвечает `plan_not_approved`. Применять может только капитан (или тот, кто сейчас капитан после передачи роли). В фазе discovery `--apply` ещё ждёт `crew discover status` (`discovery_not_done`; `--skip_discovery` это решение человека в обход) и затем переключает фазу на `build`. `--apply` также отказывает с `team_not_collaborator`, если в блоке `crew-team` указан человек, который не является участником репо.
 - **Каркас**: первый блок (`skeleton: true`, `tier/risk: high`); остальные задачи неявно ждут его. Задача с зависимостями создаётся в `status:waiting` («после #N»), без них в `ready`, а `ready: false` даёт `needs-spec`.
 - **waiting -> ready** делает `crew task promote`: job `promote` в `crew.yml` при закрытии issue и `crew task sweep` по расписанию.
 - **Риск** `low | med | high` (по умолчанию `med`), одна зона на задачу, критерии приёмки `Given/When/Then` (русские `Дано/Когда/Тогда` тоже принимаются), `req: [R1]` превращается в «Требования ТЗ» в issue.
@@ -416,6 +430,7 @@ crew eval --agents claude:opus,claude:sonnet --task fix-off-by-one
 - **Headless-запуск Claude** для `crew worker` использует `claude -p` с `--permission-mode acceptEdits` и явным списком `--allowedTools` (правки файлов, `npm`/`node`/`uv`, чтение `git`, `crew`); флаги взяты из документации Claude Code и проверялись вживую меньше, чем Codex. Сначала попробуйте одну задачу на своей машине. Headless-запуск Codex (`codex exec`) проверен вживую на codex-cli 0.166: инструменты `crew` вызываются без подтверждения (`default_tools_approval_mode = "approve"` только для сервера `crew`).
 - **Пакет Perplexity MCP не выбран:** в `templates/mcp.optional.json` стоит заглушка `VERIFY-PACKAGE-NAME-BEFORE-ENABLING`; включайте только после проверки имени пакета.
 - **Приватность ваших правил:** `crew init` копирует в репо продукта правила, роли, навыки и workflow, поэтому если этот репо публичный, эти файлы видны всем.
+- **Имя Codex в терминале:** `.codex/config.toml` проекта задаёт `CREW_AGENT=codex` для команд Codex в терминале через `[shell_environment_policy]`; ключ есть в codex-cli 0.166, но в живой сессии Codex это ещё не проверялось.
 - Коммит-статус `crew-guard`, поставленный `GITHUB_TOKEN`, засчитывается с `app_id` GitHub Actions; если у вас иначе, в защите ветки поставьте «any source».
 
 ## Роадмап
@@ -423,7 +438,8 @@ crew eval --agents claude:opus,claude:sonnet --task fix-off-by-one
 - [x] **v0**: `crew` (CLI + MCP), AGENTS.md, роли и навыки, адаптеры Claude Code и Codex, шаблоны GitHub, CI, compliance
 - [x] **v1**: MCP в worktree задачи (`cwd`), аренда по коммитам, `crew:pause` в коде, таймауты `crew check`, защита конфигов в CI, `crew github setup`, `crew worker`, `crew metrics`, `crew eval`, `crew kickoff` с блоком `crew-team`, `crew up`, очередь «сначала ревью»; см. [`docs/ROADMAP-v1.md`](docs/ROADMAP-v1.md)
 - [ ] **v1 (остаток)**: флаг `--budget` у воркера, проверенные флаги Claude для headless
-- [ ] **v2**: автомерж зелёных PR, ночные проверки, бот-дайджест, адаптеры для Gemini и Cursor
+- [x] **v0.6–0.9**: детерминированный мерж в CI (`crew merge-ready`), сводка команды без LLM, локальная доска, вопросы между агентами, идеи, передача капитанства, свои имена у сессий агентов, фаза discovery, подключение одним сообщением, соло-режим
+- [ ] **дальше**: ночные проверки, адаптеры для Gemini и Cursor
 
 ## Разработка самого инструмента
 

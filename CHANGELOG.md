@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Fixed
+- README (EN/RU) brought up to date: `risk:high` needs one review (not two) and a person merges it; the roadmap no longer lists auto-merge and the digest as future work; the discovery step, the captain and handover, ideas and questions, the team status, the new crew-guard rules (`discovery_phase`, `spike_in_build`, `outdated_crew`, waivers) and the files a new project gets are described; steps numbered 1–7.
+
 ## [0.9.0] — 2026-11-20
 
 ### Added

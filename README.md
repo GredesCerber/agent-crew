@@ -36,7 +36,8 @@ Everything lives in **GitHub**: Issues are the task queue, Pull Requests are the
 
 ```mermaid
 flowchart LR
-    B[Brief<br/>docs/brief.md] --> P[Planner<br/>crew-kickoff]
+    B[Brief<br/>docs/brief.md] --> D[Discovery<br/>research, decisions]
+    D --> P[Planner<br/>PRD, crew-kickoff]
     P --> Q[(GitHub Issues<br/>task queue)]
     Q -->|crew task next / claim| W1[Claude<br/>alice's laptop]
     Q -->|crew task next / claim| W2[Codex<br/>bob's laptop]
@@ -125,11 +126,12 @@ AGENTS.md                ← the main rules for all agents
 CLAUDE.md                ← one line: @AGENTS.md (Claude reads the rules from there)
 crew.config.json         ← areas, checks, model tiers, MCP
 agents/roles/            ← analyst, planner, builder, reviewer, integrator + helpers scout, implementer
-agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis
+agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis, crew-discovery
 .claude/ .mcp.json       ← generated for Claude Code (+ the ECC plugin)
 .codex/ .agents/skills/  ← generated for Codex
 .github/                 ← issue and PR templates, CI checks (crew.yml) and PR rules (crew-guard.yml)
-contracts/ tests/ docs/  ← API contracts, acceptance tests, brief and playbooks
+contracts/ tests/ docs/  ← API contracts, acceptance tests, brief, discovery.md, decisions.md, playbooks
+README.md JOIN.md        ← the first line tells a newcomer what to say to their agent; JOIN.md is for that agent
 events/                  ← optional event rules (time window, team members)
 ```
 
@@ -167,11 +169,11 @@ This accepts the invitation, clones the repo, configures git and runs `crew adap
 
 An agent's name in tasks and commits is `CREW_AGENT` plus the machine name (`claude@alice-laptop`), added by `crew`. A second session on the same machine gets its own name automatically from the crew MCP server (`claude@alice-laptop#2`); the two count as one agent for review, so neither can approve the other. In a terminal outside your task folder, with several sessions running, crew asks you to use the MCP tools instead of guessing (`ambiguous_agent`).
 
-### 5a. Discovery: research before the plan (captain and everyone)
+### 5. Discovery: research before the plan (captain and everyone)
 
 A new team project starts in the **discovery phase** (`crew.config.json` → `"phase": "discovery"`): no product code yet; crew-guard lets PRs touch only `docs/` and `spikes/` (throwaway experiments that never become product code). The captain's agent lists the open questions of the brief as `crew-research` blocks in `docs/discovery.md`; `crew discover plan --apply` makes them research tasks for the area owners. Each ends with a document: facts with sources, assumptions marked, a position. Disagreements go through PR comments and `crew ask`, questions for the organizers through `crew ask --human`, agreed decisions into `docs/decisions.md`. The PRD is written from all that, as a PR reviewed by another vendor's agent. `crew discover status` lists what is left; `crew kickoff --apply` waits for it and switches the phase to `build` (skill `crew-discovery`).
 
-### 5. Plan: brief -> PRD -> tasks (captain)
+### 6. Plan: brief -> PRD -> tasks (captain)
 
 The captain puts the brief into `docs/brief.md`, and the planner agent turns it into `docs/prd.md` (skills `crew-brief-analysis` and `crew-kickoff`). The PRD contains a `crew-team` block (who owns which area, who reviews) and `crew-task` / `crew-epic` blocks. Then:
 
@@ -183,13 +185,13 @@ crew kickoff --apply      # create the issues, once the PRD is approved
 
 Details in [crew kickoff](#crew-kickoff).
 
-### 6. Run the agents
+### 7. Run the agents
 
 **Claude Code**: open the project folder; it reads `CLAUDE.md` -> `AGENTS.md` and connects the `crew` MCP server on its own. Then:
 
 > /loop 10m Work the crew-workflow loop
 
-**Codex**: run `codex` in the project root and confirm you trust the project (otherwise it will not read `.codex/config.toml`). Codex has no `/loop`, so the loop runs in the chat on top of `crew task next --wait`:
+**Codex**: run `codex` in the project root and confirm you trust the project (otherwise it will not read `.codex/config.toml`, which also gives its terminal commands `CREW_AGENT=codex`). Codex has no `/loop`, so the loop runs in the chat on top of `crew task next --wait`:
 
 > Work the crew-workflow loop without stopping: run `crew task next --wait 20`, do what its next_actions say, then run it again. Stop after three "no free tasks" answers in a row.
 
@@ -217,14 +219,26 @@ bob: api
 `crew task next` offers a person's agent its own tasks first, then unowned ones, then other people's areas ("help the owner"). The `review` role marks the team's reviewers.
 
 ### Review-first queue
-`crew task next` serves the team before itself: your own PR that needs fixes, then a ready PR to merge, then a PR waiting for your review, and only then a new task. This keeps work from piling up behind review.
+`crew task next` serves the team before itself: your own PR that needs fixes, then a question another agent asked you, then an answer to your question, then your own unfinished task on this machine (`resume`, after a session died), then a ready PR to merge, then a PR waiting for your review, and only then a new task. This keeps work from piling up behind review.
+
+### The captain, and handing the role over
+Whoever runs `crew up` is the captain (`crew.config.json` → `captain`): the only one who plans (`crew kickoff --apply`, `crew discover plan --apply`), decides on ideas and gets questions that need a human. The repo owner chooses at `crew up` whether the role can be handed over: `--handover off` (default), `deputies` (only to `--deputies`), `team` (anyone with write access), plus an optional automatic fallback to the first deputy after `--fallback_hours` of captain silence. The captain hands over with `crew captain handoff @login --hours N` and takes it back with `crew captain back`; `crew captain` shows who acts now. The rule changes later with `crew captain policy`.
+
+### Ideas and questions
+When a person suggests something outside the current task, the agent does not build it: `crew idea` records it for the captain, who accepts it as a `needs-spec` task (`crew idea accept`) or rejects it with a reason. When an agent needs something from another area, it asks the owner with `crew ask <area>`; the answer comes back through `crew task next`. Decisions only a human can make go with `--human` to the captain. Nothing is agreed "in chat": everything is an issue the humans can see.
+
+### Team status without an LLM
+`crew digest` (kept by CI in a pinned issue every 15 minutes) and `crew board` (a local page with a captain panel) show what waits for a human, stale leases, PRs waiting, open questions, ideas, idle members, people with access but no area, the phase and research over budget. Nobody has to keep an agent polling the repo.
 
 ### Cross-agent review and `crew-guard`
 Claude's code is reviewed by Codex and vice versa: different models catch different mistakes. `crew-guard` is a commit status set on every PR:
 
 - `failure` if the PR changes the rules of agents or CI (`crew.config.json`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `agents/**`, `events/**`). Agents may not do this at all; the rules are changed by a maintainer;
 - `failure` if the PR changes or deletes an **existing** acceptance test and its task does not allow it (the `changes_acceptance` field of the PRD task). Adding new tests is fine;
-- `failure` if the reviewer asked for changes; `pending` while waiting for review; `success` when **another agent** reviewed the current commit (`crew pr review <n> --verdict approve`), two reviews for `risk:high`;
+- `failure` if the reviewer asked for changes; `pending` while waiting for review; `success` when **another agent** reviewed the current commit (`crew pr review <n> --verdict approve`). Another session of the same agent on the same machine (`claude@pc#2`), the agent that wrote the commits, and bots never count. A `risk:high` PR is not auto-merged: a person (or `crew merge-ready` in CI) merges it after the review;
+- `failure` during the discovery phase if the PR touches anything outside `docs/` and `spikes/` (`discovery_phase`), and after it if the PR changes `spikes/` (`spike_in_build`);
+- `failure` if the PR was opened with a crew older than the repo pins in `CREW_HARNESS` (`outdated_crew`): update crew and run `crew pr open` again;
+- a human can waive paperwork rules (`closes`, `agent_trailer`, `not_crew_pr`) for one commit of a PR made outside crew with `crew pr waive`; protected files, acceptance tests and the review itself cannot be waived;
 - for `risk:high`, tests and code are written by **different agents**: the tests task (`tests_for`) puts them into `tests/pending/<T>/`, and the main task must move them into `tests/acceptance/` without a single edit (otherwise `failure`); `crew task claim` does not let the test author take the code;
 - who reviews is set in `crew.config.json -> review`: by default an agent of another vendor, and if none shows up within 30 minutes, any other agent. A Claude-only team uses `"require": "other-agent"` or `"hosts": ["claude"]`;
 - the `crew-guard.yml` workflow is taken from `main`, not from the PR branch (`pull_request_target`), and never runs PR code, so a PR cannot weaken its own check;
@@ -241,7 +255,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 
 | Command | What it does |
 |---|---|
-| `crew task next [--area web] [--tier low] [--wait 20]` | the next item for you: own PR to fix, PR to merge, review, or a free task for your area and model tier; with `--wait N` it polls once a minute for up to N minutes when idle (the in-chat loop for Codex) |
+| `crew task next [--area web] [--tier low] [--wait 20]` | the next item for you: own PR to fix, a question to answer or an answer to read, your unfinished task (`resume`), a PR to merge, a review, or a free task for your area and model tier; with `--wait N` it polls once a minute for up to N minutes when idle (the in-chat loop for Codex) |
 | `crew task claim <id>` | take a task: label, lease, branch `crew/<id>-...`, separate worktree |
 | `crew check` | run lint/types/tests from `crew.config.json`; short error summary, full log in `.crew/logs/`; each step has `timeout_s` (default 600), a hung step is killed and yields `ci_red` |
 | `crew commit -m "feat: ..."` | commit with `Agent` and `Issue` trailers |
@@ -251,7 +265,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew task status <id> blocked --note "..."` | change the status and leave a handoff |
 | `crew task release <id>` / `heartbeat <id>` | give a task back / extend the lease (your own only; someone else's needs a human with `--force`) |
 | `crew shots before\|after --url <page> [--name <screen>]` | before/after screenshot (Playwright) for a task that changes the UI; `crew pr open` shows them as a Before / After table |
-| `crew board [--port 4747]` | local task board in the browser: queue by status, PRs waiting; set assignee, status and priority by hand (no agent tokens) |
+| `crew board [--port 4747]` | local task board in the browser: a captain panel (counters, what waits for a human, ideas with Accept / Reject), the queue by status, PRs waiting; set assignee, status and priority by hand (no agent tokens) |
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
 | `crew idea "..." [--original "..."] [--from_person login] [--task N]` | record an idea a person suggested outside the current task; the captain sees it in `crew task next`, the digest and the board |
@@ -262,7 +276,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew pr waive <n> --rule <r> --reason "..."` | human only: waive a paperwork rule of crew-guard (closes, agent_trailer, not_crew_pr) for the current commit of a PR made outside crew; the review is still required |
 | `crew pr logs <n>` | why a PR check is red: the failing step of the CI log, no browser needed |
 | `crew merge-ready [--dry_run]` | merge PRs that are ready (review, green check and crew-guard) but not auto-merged; the scheduled CI job runs it, no agent session needed |
-| `crew digest [--post]` | team status without an LLM: what needs a human, stale leases, PRs waiting, open questions, idle members; the scheduled CI job keeps it in a pinned issue |
+| `crew digest [--post]` | team status without an LLM: what needs a human, stale leases, PRs waiting, open questions, ideas, idle members, newcomers without an area, the phase, research over budget, who acts as captain; the scheduled CI job keeps it in a pinned issue |
 | `crew task cleanup [--dry_run]` | remove worktrees of closed tasks (only those with no uncommitted changes and with work already saved in main or on GitHub) |
 | `crew task lint` | validate `docs/prd.md` offline: all errors at once (line, id, rule) |
 | `crew task sweep` / `crew task promote` | return expired leases to the queue / move `waiting` tasks to `ready` when their dependencies close (run by CI) |
@@ -297,7 +311,7 @@ Every command answers in one shape, so the agent never has to guess:
 
 ## crew kickoff
 
-The planner (skill `crew-kickoff`) reads `docs/brief.md` and `docs/brief-analysis.md` and writes only `docs/prd.md` with `crew-team`, `crew-task` and `crew-epic` blocks ([format](skills/crew-kickoff/task-format.md)). Code creates the issues:
+The planner (skill `crew-kickoff`) reads `docs/brief.md`, `docs/brief-analysis.md`, the research in `docs/research/` and `docs/decisions.md`, and writes only `docs/prd.md` with `crew-team`, `crew-task` and `crew-epic` blocks ([format](skills/crew-kickoff/task-format.md)). Code creates the issues:
 
 ```bash
 crew task lint            # validate the PRD offline: all errors at once (line, id, rule)
@@ -305,7 +319,7 @@ crew kickoff              # plan (dry run): what will be created, statuses, orde
 crew kickoff --apply      # create tasks and epics, only if the PRD is approved
 ```
 
-- **Approval** is the first PRD line `<!-- crew:prd status: approved by: <login> at: <ISO> -->`. Without it `--apply` answers `plan_not_approved`. Only the captain can apply. `--apply` also refuses with `team_not_collaborator` when the `crew-team` block names someone who is not a collaborator of the repo.
+- **Approval** is the first PRD line `<!-- crew:prd status: approved by: <login> at: <ISO> -->`. Without it `--apply` answers `plan_not_approved`. Only the captain (or whoever acts as captain after a handover) can apply. During the discovery phase `--apply` also waits for `crew discover status` (`discovery_not_done`; `--skip_discovery` is a human override) and then switches the phase to `build`. `--apply` also refuses with `team_not_collaborator` when the `crew-team` block names someone who is not a collaborator of the repo.
 - **Skeleton**: the first block (`skeleton: true`, `tier/risk: high`); all other tasks implicitly wait for it. A task with dependencies is created as `status:waiting` ("after #N"), without them as `ready`, and `ready: false` gives `needs-spec`.
 - **waiting -> ready** is done by `crew task promote`: the `promote` job in `crew.yml` when an issue closes, and `crew task sweep` on a schedule.
 - **Risk** is `low | med | high` (default `med`), one area per task, acceptance criteria as `Given/When/Then` (Russian `Дано/Когда/Тогда` is also accepted), `req: [R1]` becomes "Brief requirements" in the issue.
@@ -414,6 +428,7 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 - **Headless Claude** for `crew worker` uses `claude -p` with `--permission-mode acceptEdits` and an explicit `--allowedTools` list (file edits, `npm`/`node`/`uv`, read-only `git`, `crew`); the flags follow the Claude Code docs and have had less live testing than Codex. Try one task on your machine first. Headless Codex (`codex exec`) was verified live on codex-cli 0.166: `crew` tools are called without confirmation (`default_tools_approval_mode = "approve"` for the `crew` server only).
 - **The Perplexity MCP package is not chosen:** `templates/mcp.optional.json` contains the placeholder `VERIFY-PACKAGE-NAME-BEFORE-ENABLING`; enable it only after verifying the package name.
 - **Privacy of your rules:** `crew init` copies rules, roles, skills and workflows into the product repo, so if that repo is public, those files are public too.
+- **Codex terminal identity:** the project's `.codex/config.toml` sets `CREW_AGENT=codex` for Codex terminal commands through `[shell_environment_policy]`; the key exists in codex-cli 0.166, but this was not yet tried in a live Codex session.
 - A commit status `crew-guard` set by `GITHUB_TOKEN` is counted with the GitHub Actions `app_id`; if your setup differs, set branch protection to accept "any source".
 
 ## Roadmap
@@ -421,7 +436,8 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 - [x] **v0**: `crew` (CLI + MCP), AGENTS.md, roles and skills, Claude Code and Codex adapters, GitHub templates, CI, compliance
 - [x] **v1**: MCP in the task worktree (`cwd`), leases by commits, `crew:pause` in code, `crew check` timeouts, config protection in CI, `crew github setup`, `crew worker`, `crew metrics`, `crew eval`, `crew kickoff` with the `crew-team` block, `crew up`, review-first queue; see [`docs/ROADMAP-v1.md`](docs/ROADMAP-v1.md)
 - [ ] **v1 (remaining)**: a `--budget` flag for the worker, verified headless flags for Claude
-- [ ] **v2**: auto-merge of green PRs, nightly checks, a digest bot, adapters for Gemini and Cursor
+- [x] **v0.6–0.9**: deterministic merges in CI (`crew merge-ready`), a team digest without an LLM, the local board, questions between agents, ideas, captain handover, per-session agent names, the discovery phase, one-message join, solo mode
+- [ ] **next**: nightly checks, adapters for Gemini and Cursor
 
 ## Developing the tool itself
 
