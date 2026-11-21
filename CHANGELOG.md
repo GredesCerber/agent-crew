@@ -5,6 +5,29 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- **`crew up` looks before it writes.** `crew up ... --check` reads the GitHub plan, your rights on the owner and the repo, `crew` on PATH and the agent hosts, and changes nothing. A plain `crew up` runs the same check first and stops with `preflight` before the first write when `main` could not be protected (a new private repo on the free plan), when you are not an admin of an existing repo, or when you cannot create repos under the owner. `--no_protection` sets up a free private repo anyway, knowingly. Protection is reported as available, unavailable or unverified (the plan could not be read).
+- **A pilot on one issue** ([docs/PILOT.md](docs/PILOT.md)): try crew in a repo you already have, on one existing issue, through claim, review and a protected merge, without discovery or a PRD.
+- **Approve the plan on `crew board`.** The Discovery tab shows the PRD in this folder with its revision (a hash of the text), whether the captain approved exactly that revision, and whether main has the same text; the captain reads it and presses Approve the plan.
+
+### Changed
+- **PRD approval is a record, not a header.** `crew kickoff --apply` needs a `<!-- crew:prd-approved rev=<revision> -->` comment by the captain (or the acting captain) on the `crew:prd-approval` issue, for exactly the PRD text it is about to apply. Any edit after the approval needs a new one. `approved by: auto-timeout` is gone: agents never approve a plan, not even after a silence. The `crew:prd` header line stays as a note. Projects in the middle of planning: the captain approves once on `crew board`.
+- `crew github setup` keeps what `main` already enforces: required checks stay required, a higher number of required human approvals stays, code owners, admin enforcement and conversation resolution stay on. It warns when the branch requires linear history (crew merges with merge commits).
+- `crew board` opens only from the address it prints (it carries a key for this run), so another user of the same computer cannot open it and act under your `gh` account.
+
+### Fixed
+- `crew board` (from a cross-vendor review of 0.10.0):
+  - reads and writes always go to the project's repo, also when it is started in a nested checkout;
+  - Release lease posts the release note first, so a task never shows as Ready while an old claim still holds it, and reports a half-done release instead of success;
+  - Release and Resume act on what the person saw: another agent's new lease, or a stop opened after the page loaded, is not touched (409);
+  - every write checks the `gh` account in use right now, not the one from the start;
+  - an upload cut off mid-way no longer stops the server;
+  - a failed GitHub read shows an error (and older data with a warning) instead of an empty list;
+  - stale-lease alerts count commits on the task branch, as the sweep does;
+  - the PR tab shows reviews as crew-guard counts them (no bots, no short commit ids, the author's own review marked);
+  - a marker field can no longer change a marker's kind;
+  - tasks done per day and per person count only finished work, not answered questions, rejected ideas or a resume.
+
 ## [0.10.0] — 2026-11-21
 
 The captain's console, checked by an independent review before release.

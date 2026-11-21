@@ -8,10 +8,10 @@ export const TIERS = ['low', 'mid', 'high'];
 export const labelValue = (issue, prefix) =>
   issue.labels.map((l) => l.name).find((n) => n.startsWith(prefix + ':'))?.slice(prefix.length + 1) ?? null;
 
-export function listIssues({ label, limit = 200 } = {}) {
+export function listIssues({ label, limit = 200, cwd } = {}) {
   const args = ['issue', 'list', '--state', 'open', '--limit', String(limit), '--json', 'number,title,labels,assignees,updatedAt'];
   if (label) args.push('--label', label);
-  return ghJson(args) ?? [];
+  return ghJson(args, cwd ? { cwd } : undefined) ?? [];
 }
 
 /** Emergency stop label: while such an issue is open, agents do not take tasks. */
@@ -74,7 +74,8 @@ export function parseMarkers(comments = [], { trustedOnly = true } = {}) {
     if (trustedOnly && !isTrustedComment(c)) continue;
     for (const m of (c.body ?? '').matchAll(/<!-- (?:crew|hk):(\w+(?:-\w+)*)((?: \w+=\S+)*) -->/g)) {
       const fields = Object.fromEntries([...m[2].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]));
-      out.push({ kind: m[1], ...fields, createdAt: c.createdAt, by: c.author?.login ?? null });
+      // kind, createdAt and by come from the comment itself: a kind= or by= field must not override them
+      out.push({ ...fields, kind: m[1], createdAt: c.createdAt, by: c.author?.login ?? null });
     }
   }
   return out;

@@ -11,6 +11,7 @@ import { STATUS } from '../src/core/issues.js';
 import { DEFAULT_CONFIG } from '../src/core/config.js';
 import { agentCommands, findCommand } from '../src/core/registry.js';
 import { allLabels } from '../src/commands/labels.js';
+import { prdRevision, approvalComment, PRD_APPROVAL_LABEL } from '../src/core/prd.js';
 
 const ROOT = join(import.meta.dirname, '..');
 const CREW = join(ROOT, 'bin', 'crew.js');
@@ -52,7 +53,20 @@ const sleeper = () => {
   const slept = [];
   return { slept, sleep: async (ms) => { slept.push(ms); } };
 };
-const deps = (root, extra) => ({ root, areas: DEFAULT_CONFIG.areas, ...extra });
+/** A comment on the approvals issue, as the captain's crew board posts it. */
+const approvalBy = (login, rev) => ({ body: approvalComment({ rev, login }), author: { login }, authorAssociation: 'OWNER', createdAt: '2026-11-08T10:00:00Z' });
+const isApprovals = (args) => args[0] === 'issue' && args[1] === 'list' && args.includes(PRD_APPROVAL_LABEL);
+/** gh that also answers the approvals list (comments) before the fake for everything else. */
+const withApprovals = (gh, comments) => (args, opts) => (isApprovals(args) ? { code: 0, stdout: JSON.stringify([{ number: 50, comments }]), stderr: '' } : gh(args, opts));
+/**
+ * The old tests mark an approved PRD with the header line; the approval itself now lives on GitHub. For such a PRD
+ * the fake gh answers with alice's approval of exactly the current text.
+ */
+const deps = (root, extra = {}) => {
+  const text = readFileSync(join(root, 'docs', 'prd.md'), 'utf8');
+  const gh = extra.gh && text.startsWith(APPROVED) ? withApprovals(extra.gh, [approvalBy('alice', prdRevision(text))]) : extra.gh;
+  return { root, areas: DEFAULT_CONFIG.areas, ...extra, gh };
+};
 
 test('kickoff dry-run: a plan without approval, creates nothing', async () => {
   const root = project(FORMAT);
@@ -63,7 +77,8 @@ test('kickoff dry-run: a plan without approval, creates nothing', async () => {
   assert.equal(r.artifacts.approved, false);
   assert.deepEqual(r.artifacts.plan.map((o) => o.id), ['T1', 'T2', 'T3', 'T6', 'T4', 'T5', 'E1']);
   assert.equal(f.creates().length, 0);
-  assert.ok(r.next_actions.some((a) => a.includes('status: approved')));
+  assert.equal(r.artifacts.rev, prdRevision(FORMAT));
+  assert.ok(r.next_actions.some((a) => a.includes('Approve the plan') && a.includes(prdRevision(FORMAT))));
 });
 
 test('kickoff --apply without approval -> plan_not_approved before touching GitHub', async () => {
@@ -73,11 +88,48 @@ test('kickoff --apply without approval -> plan_not_approved before touching GitH
   assert.equal(r.status, 'error');
   assert.equal(r.error.code, 'plan_not_approved');
   assert.ok(r.error.cause_hint && r.error.retry && r.error.stop_when);
-  assert.match(r.error.stop_when, /auto-timeout/);
-  assert.equal(f.calls.length, 0, 'gh was not called');
+  assert.match(r.error.stop_when, /never approve it yourself/);
+  assert.deepEqual(f.calls.map((c) => c.args[1]), ['list'], 'gh only read the approvals: nothing written');
+  assert.equal(f.creates().length, 0);
   const draft = await runKickoff({ apply: true }, deps(project(`<!-- crew:prd status: draft by: - at: - -->\n${FORMAT}`), { gh: f.gh }));
   assert.equal(draft.error.code, 'plan_not_approved');
-  assert.match(draft.error.cause_hint, /draft/);
+  assert.match(draft.error.cause_hint, /no approval/);
+});
+
+test('approval: only a recorded approval of this exact revision by the captain counts', async () => {
+  const text = FORMAT;
+  const rev = prdRevision(text);
+  const run = async (prd, comments, extra = {}) => {
+    const f = fakeGh();
+    const me = extra.acting?.login ?? 'alice'; // gh api user: who runs kickoff
+    const gh = (args, o) => (args[0] === 'api' && args[1] === 'user' ? { code: 0, stdout: me, stderr: '' } : f.gh(args, o));
+    const r = await runKickoff({ apply: true }, { root: project(prd), areas: DEFAULT_CONFIG.areas, gh: withApprovals(gh, comments), sleep: async () => {}, captain: 'alice', acting: null, branch: 'main', phase: 'build', ...extra });
+    return { r, f };
+  };
+  // the header alone (what an agent could write) is not an approval
+  const header = await run(`<!-- crew:prd status: approved by: alice at: 2026-11-08T10:00:00Z -->\n${text}`, []);
+  assert.equal(header.r.error.code, 'plan_not_approved');
+  assert.match(header.r.error.cause_hint, /header says approved, but no approval/);
+  // auto-timeout is gone: a plan nobody looked at
+  const timeout = await run(`<!-- crew:prd status: approved by: auto-timeout at: 2026-11-08T10:20:00Z -->\n${text}`, []);
+  assert.match(timeout.r.error.cause_hint, /auto-timeout/);
+  // an edit after the approval needs a new one
+  const edited = await run(`${text}\nOne more line.`, [approvalBy('alice', rev)]);
+  assert.equal(edited.r.error.code, 'plan_not_approved');
+  assert.ok(edited.r.error.cause_hint.includes(`changed after it was approved (approved: ${rev}`), edited.r.error.cause_hint);
+  // a member who is not the captain, or a marker in someone's comment that names alice, does not count
+  const bob = await run(text, [approvalBy('bob', rev), { ...approvalBy('bob', rev), body: `<!-- crew:prd-approved rev=${rev} by=alice -->` }]);
+  assert.equal(bob.r.error.code, 'plan_not_approved');
+  // an outsider's comment is never trusted
+  const outsider = await run(text, [{ ...approvalBy('alice', rev), authorAssociation: 'NONE' }]);
+  assert.equal(outsider.r.error.code, 'plan_not_approved');
+  // the acting captain may approve during a handover
+  const acting = await run(text, [approvalBy('carol', rev)], { acting: { login: 'carol', why: 'handoff' } });
+  assert.equal(acting.r.status, 'success', JSON.stringify(acting.r));
+  // the captain's approval of this revision: tasks are created; the header (a note) does not change the revision
+  const good = await run(`<!-- crew:prd status: approved by: alice at: x -->\n${text}`, [approvalBy('alice', rev)]);
+  assert.equal(good.r.status, 'success', JSON.stringify(good.r));
+  assert.equal(good.f.creates().length, 7);
 });
 
 test('kickoff --apply: order, labels, bodies with "After #N", the epic last, a pause between creates', async () => {

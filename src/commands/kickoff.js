@@ -20,10 +20,24 @@ export function mainPhase(root, localConfig = {}) {
 import { phaseOf } from '../core/discovery.js';
 import {
   DEFAULT_PRD, parsePrd, lintPrd, planKickoff, prdApproval, renderTaskBody, renderEpicBody, formatLintItem,
+  prdRevision, approvalFor, PRD_APPROVAL_LABEL,
 } from '../core/prd.js';
 
 const FILE_ARG = { name: 'file', type: 'string', description: `path to the PRD from the project root (default ${DEFAULT_PRD})` };
-const APPROVE_LINE = '<!-- crew:prd status: approved by: <login|auto-timeout> at: <ISO> -->';
+/** How a person approves (said in every hint): agents never approve a plan, not even after a silence. */
+const HOW_TO_APPROVE = (rev) => `the captain opens crew board → Discovery → Approve the plan (revision ${rev}); or comments <!-- crew:prd-approved rev=${rev} --> on the "${PRD_APPROVAL_LABEL}" issue on GitHub`;
+
+/**
+ * Approvals recorded on GitHub (comments on the crew:prd-approval issue) for this PRD revision.
+ * mayApprove(login): captain powers. → { approved, by, at, revs, issue } or { error }.
+ */
+export function loadApproval(gh, rev, mayApprove) {
+  const r = gh(['issue', 'list', '--label', PRD_APPROVAL_LABEL, '--state', 'all', '--limit', '20', '--json', 'number,comments']);
+  if (r.code !== 0) return { error: (r.stderr || r.stdout || 'gh failed').split('\n')[0] };
+  let list = [];
+  try { list = JSON.parse(r.stdout || '[]') ?? []; } catch { list = []; }
+  return { ...approvalFor(list.flatMap((i) => i.comments ?? []), rev, mayApprove), issue: list[0]?.number ?? null };
+}
 
 /** Pause between gh issue create calls and retry pauses on rate limit (ms). */
 export const CREATE_DELAY_MS = 1000;
@@ -73,9 +87,9 @@ const taskLint = {
     const r = loadPrd({ file, root, areas: config.areas });
     if (r.result) return r.result;
     const { parsed, lint, text } = r;
-    const approval = prdApproval(text);
-    const artifacts = { tasks: parsed.tasks.length, epics: parsed.epics.length, order: lint.order, warnings: lint.warnings, approved: approval.approved };
-    const next_actions = [approval.approved ? 'crew kickoff — plan (dry-run), then crew kickoff --apply' : `show the PRD and crew kickoff (dry-run) to the product lead; once approved, put this in the ${file} header: ${APPROVE_LINE}`];
+    const rev = prdRevision(text);
+    const artifacts = { tasks: parsed.tasks.length, epics: parsed.epics.length, order: lint.order, warnings: lint.warnings, rev };
+    const next_actions = [`show the PRD and crew kickoff (dry-run) to the captain; approval: ${HOW_TO_APPROVE(rev)}; then crew kickoff --apply`];
     const summary = `PRD ${file}: tasks ${parsed.tasks.length}, epics ${parsed.epics.length}`;
     return lint.warnings.length
       ? warn(`${summary}, warnings ${lint.warnings.length}`, { artifacts, next_actions: [...lint.warnings.map(formatLintItem), ...next_actions] })
@@ -193,18 +207,33 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
   const r = loadPrd({ file, root, areas: deps.areas ?? cfg?.config.areas });
   if (r.result) return r.result;
   const { parsed, lint, text } = r;
-  const approval = prdApproval(text);
-  // The approval gate comes before any GitHub calls.
+  const header = prdApproval(text);
+  const rev = prdRevision(text);
+  const gh = deps.gh ?? defaultGh(root);
+  // Who may approve: the captain, or the acting captain during a handover (anyone when the project has no captain).
+  const captain = deps.captain !== undefined ? deps.captain : cfg?.config.captain ?? null;
+  let actingCache;
+  const acting = () => (actingCache !== undefined ? actingCache : (actingCache = deps.acting !== undefined ? deps.acting : cfg && captain ? loadActingCaptain(cfg.root, { ...cfg.config, captain }) : null));
+  const mayApprove = (login) => hasCaptainPowers(login, { captain }, captain ? acting() : null);
+  // The approval gate comes before any write: a person approved exactly this revision, recorded on GitHub.
+  // The header in the file is only a note; an edit after the approval changes the revision and needs a new one.
+  const approval = loadApproval(gh, rev, mayApprove);
   if (apply && !approval.approved) {
-    return fail('plan_not_approved', `PRD ${file} is not approved — not creating issues`, {
-      cause_hint: approval.status ? `PRD header says status: ${approval.status}` : `${file} has no approval header ${APPROVE_LINE}`,
-      retry: 'show the PRD and crew kickoff (dry-run) to the product lead, once approved set status: approved and run crew kickoff --apply again',
-      stop_when: 'no answer from the product lead for 20 minutes — the planner sets status: approved by: auto-timeout; do not run --apply without the header',
-      next_actions: ['crew kickoff (dry-run) — show the plan to the human', `after approval: ${APPROVE_LINE} at the top of ${file}`, 'crew kickoff --apply'],
-      artifacts: { approval },
+    const why = approval.error
+      ? `could not read the approvals on GitHub (${approval.error}), so the approval cannot be confirmed`
+      : approval.revs?.length
+      ? `${file} changed after it was approved (approved: ${approval.revs.join(', ')}; now: ${rev})`
+      : header.by === 'auto-timeout'
+        ? 'the header says approved by auto-timeout: a plan nobody looked at is not approved any more'
+        : header.approved ? `the header says approved, but no approval of revision ${rev} is recorded on GitHub` : `no approval of ${file} revision ${rev} is recorded yet`;
+    return fail('plan_not_approved', `PRD ${file} (revision ${rev}) is not approved — not creating issues`, {
+      cause_hint: why,
+      retry: `show the PRD and crew kickoff (dry-run) to the captain; ${HOW_TO_APPROVE(rev)}; then crew kickoff --apply`,
+      stop_when: 'until the captain approves: never approve it yourself or write the approval comment, whatever the silence',
+      next_actions: ['crew kickoff (dry-run) — show the plan to the captain', HOW_TO_APPROVE(rev), 'crew kickoff --apply'],
+      artifacts: { rev, approval },
     });
   }
-  const gh = deps.gh ?? defaultGh(root);
   const warnings = lint.warnings.map(formatLintItem);
   let existing = [];
   const lr = gh(LIST_ARGS);
@@ -223,23 +252,22 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
   const planView = plan.ops.map(({ op, kind, id, title, labels, after, tasks, number, assignee }) => ({ op, kind, id, title, ...(number ? { number } : {}), ...(assignee ? { assignee } : {}), ...(labels ? { labels } : {}), ...(after?.length ? { after } : {}), ...(tasks ? { tasks } : {}) }));
 
   if (!apply) {
-    const artifacts = { apply: false, approved: approval.approved, approval, plan: planView, map: plan.map, warnings };
+    const artifacts = { apply: false, rev, approved: !!approval.approved, approval, plan: planView, map: plan.map, warnings };
     const summary = `Kickoff plan: create ${count('create')}, skip ${count('skip') + count('changed')}${count('orphan') ? `, orphans ${count('orphan')}` : ''} (dry-run)`;
     const next_actions = approval.approved
-      ? ['crew kickoff --apply']
-      : ['show the PRD and this plan to the product lead', `once approved: ${APPROVE_LINE} at the top of ${file}`, 'crew kickoff --apply'];
+      ? [`crew kickoff --apply (revision ${rev} approved by @${approval.by})`]
+      : ['show the PRD and this plan to the captain', HOW_TO_APPROVE(rev), 'crew kickoff --apply'];
     return warnings.length ? warn(summary, { artifacts, next_actions }) : ok(summary, { artifacts, next_actions });
   }
 
   // One person drives the plan — the captain (crew.config.json → captain, written by crew up). Members do not plan.
-  const captain = deps.captain !== undefined ? deps.captain : cfg?.config.captain ?? null;
   if (captain) {
     const who = gh(['api', 'user', '--jq', '.login']);
     const me = who.code === 0 ? who.stdout.trim() : null;
     // the acting captain (a handover by the captain, or the automatic fallback) may plan too, if the project allows it
-    const acting = deps.acting !== undefined ? deps.acting : cfg ? loadActingCaptain(cfg.root, { ...cfg.config, captain }) : null;
-    if (!hasCaptainPowers(me, { captain }, acting)) {
-      return fail('not_captain', `Only the captain ${captain}${acting?.login && acting.why !== 'captain' ? ` (or @${acting.login}, acting now)` : ''} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
+    const act = acting();
+    if (!hasCaptainPowers(me, { captain }, act)) {
+      return fail('not_captain', `Only the captain ${captain}${act?.login && act.why !== 'captain' ? ` (or @${act.login}, acting now)` : ''} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
         cause_hint: 'the team has one plan: a second kickoff creates duplicate tasks and a foreign skeleton',
         retry: 'members: do not plan, work through the crew-workflow cycle (crew task next)',
         stop_when: 'immediately: tell the human that the captain makes the plan',
@@ -305,7 +333,7 @@ const kickoff = {
   summary: 'Tasks and epics in Issues from docs/prd.md: plan (dry-run) by default, --apply to create (the PRD must be approved)',
   args: [
     FILE_ARG,
-    { name: 'apply', type: 'boolean', description: 'create issues (only if the PRD header says status: approved)' },
+    { name: 'apply', type: 'boolean', description: 'create issues (only when the captain approved this PRD revision, recorded on GitHub)' },
     { name: 'skip_discovery', type: 'boolean', description: 'kick off although the discovery exit criteria are not met; only when a human said so (not enforced: say it in the plan)' },
   ],
   run(opts) {

@@ -22,5 +22,6 @@
   {"name": "crew:idea", "color": "fef2c0", "description": "an idea someone suggested; the captain accepts it as a task or rejects it"},
   {"name": "crew:captain", "color": "fbca04", "description": "the captain handover log: who acts as captain (crew captain handoff/back)"},
   {"name": "crew:research", "color": "c2e0c6", "description": "a discovery research task: the answer is a document under docs/, no product code"},
-  {"name": "crew:digest", "color": "bfdadc", "description": "the pinned team status issue, rewritten by crew digest"}
+  {"name": "crew:digest", "color": "bfdadc", "description": "the pinned team status issue, rewritten by crew digest"},
+  {"name": "crew:prd-approval", "color": "0e8a16", "description": "PRD approvals: the captain approves one PRD revision; crew kickoff --apply needs it"}
 ]

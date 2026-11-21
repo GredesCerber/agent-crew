@@ -175,10 +175,42 @@ export const teamReviewers = (team) => (team?.members ?? []).filter((m) => m.rev
 /** PRD approval header: <!-- crew:prd status: approved by: <login|auto-timeout> at: ISO -->. */
 export const PRD_HEADER_RE = /^\s*<!--\s*(?:crew|hk):prd\s+status:\s*([\w-]+)(?:\s+by:\s*(\S+))?(?:\s+at:\s*(\S+))?\s*-->\s*$/m;
 
+/**
+ * The header is a note for readers; it no longer approves anything by itself (see approvalFor). auto-timeout is not
+ * an approval: a plan nobody looked at must not become the team's work.
+ */
 export function prdApproval(text = '') {
   const m = PRD_HEADER_RE.exec(text);
   if (!m) return { status: null, by: null, at: null, approved: false };
-  return { status: m[1], by: m[2] ?? null, at: m[3] ?? null, approved: m[1] === 'approved' };
+  return { status: m[1], by: m[2] ?? null, at: m[3] ?? null, approved: m[1] === 'approved' && m[2] !== 'auto-timeout' };
+}
+
+/** Issue that holds the PRD approvals (one comment per approved revision). */
+export const PRD_APPROVAL_LABEL = 'crew:prd-approval';
+export const PRD_APPROVAL_TITLE = 'crew: PRD approvals';
+
+/**
+ * Revision of a PRD: the first 12 hex of sha256 over its text, line endings normalized and the crew:prd header
+ * left out (writing "approved" into the header must not change what was approved). Any other edit changes it.
+ */
+export function prdRevision(text = '') {
+  const body = String(text).replace(/\r\n/g, '\n').split('\n').filter((l) => !PRD_HEADER_RE.test(l)).join('\n').trim();
+  return createHash('sha256').update(body).digest('hex').slice(0, 12);
+}
+
+/** The comment that records an approval of one revision. */
+export const approvalComment = ({ rev, login, file = DEFAULT_PRD, tasks = null }) =>
+  `<!-- crew:prd-approved rev=${rev} -->\n✅ @${login} approved \`${file}\` at revision \`${rev}\`${tasks != null ? ` (${tasks} tasks)` : ''}. crew kickoff --apply may create the tasks from exactly this text; any edit to it needs a new approval.`;
+
+/**
+ * Is this PRD revision approved? comments: comments of the approval issue(s); mayApprove(login): captain powers.
+ * Only a marker on a comment the approver posted counts (the comment author, not a field in the marker), and only
+ * from repo members (parseMarkers drops other comments). → { approved, by, at, revs: approved revisions seen }.
+ */
+export function approvalFor(comments = [], rev, mayApprove = () => true) {
+  const marks = parseMarkers(comments).filter((m) => m.kind === 'prd-approved' && m.rev && m.by && mayApprove(m.by));
+  const hit = marks.filter((m) => m.rev === rev).pop();
+  return { approved: !!hit, by: hit?.by ?? null, at: hit?.createdAt ?? null, revs: [...new Set(marks.map((m) => m.rev))] };
 }
 
 // Keywords as standalone words (Unicode: \b in JS does not work with Cyrillic).

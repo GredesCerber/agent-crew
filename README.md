@@ -61,14 +61,17 @@ needs-spec ──(human adds criteria)──► ready ──(crew task claim)─
 **Fastest: one message to an agent.** The agent reads [docs/AGENT-SETUP.md](docs/AGENT-SETUP.md) and sets everything up itself. Ready-to-paste messages for the captain, a member and the plan are at the end of that file. The commands behind them:
 
 ```bash
-# captain: create the project, the GitHub repo, invitations and protection of main
-crew up --repo owner/name --invite alice,bob
+# captain: first look (changes nothing), then create the project, the GitHub repo, invitations and protection of main
+crew up --repo owner/name --public --check
+crew up --repo owner/name --public --invite alice,bob
 
 # member: accept the invitation, clone, build local agent configs
 crew up --join owner/name
 ```
 
 What stays manual, because an agent must not or cannot do it: logging in (`gh auth login`, Claude, Codex) and confirming project trust in Codex.
+
+**Private repo on the free GitHub plan?** GitHub does not protect `main` there, so PR rules and checks bind nobody. `crew up` checks the plan before it writes anything and stops with `preflight` unless you pass `--public`, have a paid plan, or say `--no_protection` knowingly. Already have a repo? [Try crew on one issue](docs/PILOT.md) first: `crew github setup` keeps the required checks and review rules your `main` already has.
 
 ### 1. Install (once per machine)
 
@@ -265,7 +268,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew task status <id> blocked --note "..."` | change the status and leave a handoff |
 | `crew task release <id>` / `heartbeat <id>` | give a task back / extend the lease (your own only; someone else's needs a human with `--force`) |
 | `crew shots before\|after --url <page> [--name <screen>]` | before/after screenshot (Playwright) for a task that changes the UI; `crew pr open` shows them as a Before / After table |
-| `crew board [--port 4747]` | the captain's console in the browser (no agent tokens): a kanban where you drag a card to another status or onto a person to assign it; a task drawer (goal, acceptance criteria, owner and lease time left, timeline, dependencies, the linked PR; release a stuck lease); Team & roles (areas, who works on what, hand the captain role over); Inbox (accept or reject ideas, answer questions agents asked a person); Discovery (research against its time budget, exit criteria, decisions); Pull requests (review state, checks, crew-guard, the next step); Activity (this week's feed, tasks per day, claim-to-PR time); a Pause team button (`crew:pause`) |
+| `crew board [--port 4747]` | the captain's console in the browser (no agent tokens): a kanban where you drag a card to another status or onto a person to assign it; a task drawer (goal, acceptance criteria, owner and lease time left, timeline, dependencies, the linked PR; release a stuck lease); Team & roles (areas, who works on what, hand the captain role over); Inbox (accept or reject ideas, answer questions agents asked a person); Discovery (research against its time budget, exit criteria, decisions; read the PRD and approve exactly that revision); Pull requests (review state, checks, crew-guard, the next step); Activity (this week's feed, tasks per day, claim-to-PR time); a Pause team button (`crew:pause`) |
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
 | `crew idea "..." [--original "..."] [--from_person login] [--task N]` | record an idea a person suggested outside the current task; the captain sees it in `crew task next`, the digest and the board |
@@ -319,7 +322,7 @@ crew kickoff              # plan (dry run): what will be created, statuses, orde
 crew kickoff --apply      # create tasks and epics, only if the PRD is approved
 ```
 
-- **Approval** is the first PRD line `<!-- crew:prd status: approved by: <login> at: <ISO> -->`. Without it `--apply` answers `plan_not_approved`. Only the captain (or whoever acts as captain after a handover) can apply. During the discovery phase `--apply` also waits for `crew discover status` (`discovery_not_done`; `--skip_discovery` is a human override) and then switches the phase to `build`. `--apply` also refuses with `team_not_collaborator` when the `crew-team` block names someone who is not a collaborator of the repo.
+- **Approval** is a record on GitHub, not a line an agent can write: the captain reads the PRD on `crew board` (Discovery → The plan) and presses **Approve the plan**, which comments `<!-- crew:prd-approved rev=<revision> -->` on the `crew:prd-approval` issue. The revision is a hash of the PRD text, so any later edit needs a new approval; there is no approval by timeout. Without an approval of this exact revision, by the captain (or whoever acts as captain after a handover), `--apply` answers `plan_not_approved`. Only the captain can apply. Teams that do not use the board can write the same comment on GitHub by hand. The guarantee has a limit: an agent that runs under the captain's own GitHub account could post that comment too, so for a hard rule give agents their own account. During the discovery phase `--apply` also waits for `crew discover status` (`discovery_not_done`; `--skip_discovery` is a human override) and then switches the phase to `build`. `--apply` also refuses with `team_not_collaborator` when the `crew-team` block names someone who is not a collaborator of the repo.
 - **Skeleton**: the first block (`skeleton: true`, `tier/risk: high`); all other tasks implicitly wait for it. A task with dependencies is created as `status:waiting` ("after #N"), without them as `ready`, and `ready: false` gives `needs-spec`.
 - **waiting -> ready** is done by `crew task promote`: the `promote` job in `crew.yml` when an issue closes, and `crew task sweep` on a schedule.
 - **Risk** is `low | med | high` (default `med`), one area per task, acceptance criteria as `Given/When/Then` (Russian `Дано/Когда/Тогда` is also accepted), `req: [R1]` becomes "Brief requirements" in the issue.

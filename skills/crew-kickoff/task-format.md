@@ -12,9 +12,10 @@ The first line of the PRD is a machine-readable header (not visible in rendered 
 <!-- crew:prd status: draft by: - at: - -->
 ```
 
-`crew kickoff --apply` creates issues **only** when `status: approved`, otherwise it fails with `plan_not_approved`.
-A human approved: `<!-- crew:prd status: approved by: <github-login> at: 2026-11-08T10:00:00Z -->`.
-The product lead did not answer in 20 minutes — the planner sets `by: auto-timeout`. Dry-run (`crew kickoff`) works without approval.
+The header is a note for readers. `crew kickoff --apply` creates issues **only** when the captain approved this exact revision of the PRD
+(a hash of its text, shown by `crew kickoff`): on `crew board` → Discovery → **Approve the plan**, which comments
+`<!-- crew:prd-approved rev=<revision> -->` on the `crew:prd-approval` issue. Otherwise it fails with `plan_not_approved`.
+An edit after the approval needs a new one; there is no approval by timeout, and an agent never approves. Dry-run (`crew kickoff`) works without approval.
 
 ## Block syntax
 

@@ -7,6 +7,7 @@ import { linkedIssue, authorAgent } from './guard.js';
 import { QUESTION_LABEL, HUMAN_LABEL, questionMeta } from './questions.js';
 import { IDEA_LABEL, ideaMeta } from './ideas.js';
 import { handoverPolicy, explainPolicy } from './captain.js';
+import { sameAgent } from './session.js';
 import { RESEARCH_LABEL, budgetOf, researchIdOf, phaseOf } from './discovery.js';
 
 const ms = (x) => { const t = Date.parse(x ?? ''); return Number.isFinite(t) ? t : null; };
@@ -37,6 +38,17 @@ const TIMELINE = {
 };
 
 const at = (m) => m.createdAt ?? m.at ?? null;
+const BOT = /\[bot\]$|^github-actions$/;
+/**
+ * A review marker as crew-guard reads it: from a repo member (parseMarkers), not a bot, with an agent, a verdict and a
+ * commit of at least 7 characters. current: on the PR head now.
+ */
+const review = (m, head = '') => (m.kind === 'review' && m.agent && m.verdict && m.sha && m.sha.length >= 7 && !BOT.test(m.by ?? '')
+  ? { agent: m.agent, verdict: m.verdict, current: String(head).startsWith(m.sha) } : null);
+/** Issues that are not finished work: closing them is housekeeping (a question answered, an idea turned down, a resume). */
+const NOT_WORK = [QUESTION_LABEL, IDEA_LABEL, 'crew:pause', 'crew:digest', 'crew:prd-approval', 'crew:captain', 'epic'];
+/** A task closed as done (not "not planned", not an answered question or an idea). */
+export const isDoneTask = (i) => String(i.stateReason ?? 'COMPLETED').toUpperCase() === 'COMPLETED' && !names(i.labels).some((n) => NOT_WORK.includes(n));
 /**
  * What happened to a task, oldest first: crew markers on the issue, the linked PR being opened and its review
  * verdicts, the last commit on the task branch. Heartbeats in a row collapse into one line, so a long session
@@ -44,12 +56,12 @@ const at = (m) => m.createdAt ?? m.at ?? null;
  */
 export function taskTimeline(issue, pr = null, lastCommitAt = null, max = 20) {
   const events = parseMarkers(issue.comments ?? [])
-    .filter((m) => TIMELINE[m.kind])
+    .filter((m) => Object.hasOwn(TIMELINE, m.kind))
     .map((m) => ({ kind: m.kind, at: at(m), ...TIMELINE[m.kind](m) }));
   if (pr) {
     events.push({ kind: 'pr', at: pr.createdAt ?? null, title: `PR #${pr.number} opened`, tone: 'info', detail: authorAgent(pr.body) ? `by ${authorAgent(pr.body)}` : pr.title });
     for (const m of parseMarkers(pr.comments ?? [])) {
-      if (m.kind !== 'review') continue;
+      if (!review(m, pr.headRefOid)) continue;
       const okv = m.verdict === 'approve';
       events.push({ kind: 'review', at: at(m), title: okv ? 'Review: approved' : `Review: ${m.verdict ?? 'changes requested'}`, tone: okv ? 'good' : 'bad', detail: m.agent ? `by ${m.agent}` : '' });
     }
@@ -148,7 +160,7 @@ export function teamView({ members = [], team = null, columns = {}, claimComment
       queued: mine.filter((c) => c.status === 'ready').length,
       agents,
       active_min: busyMin,
-      done_week: closed.filter((i) => ms(i.closedAt) >= weekAgo && (i.assignees ?? []).some((a) => lc(a.login) === lc(login))).length,
+      done_week: closed.filter((i) => isDoneTask(i) && ms(i.closedAt) >= weekAgo && (i.assignees ?? []).some((a) => lc(a.login) === lc(login))).length,
     };
   }).sort((a, b) => Number(b.captain) - Number(a.captain) || Number(!!b.working.length) - Number(!!a.working.length) || a.login.localeCompare(b.login));
   const policy = handoverPolicy(config);
@@ -231,7 +243,12 @@ export function prsView(prs = [], { config = {}, now = Date.now() } = {}) {
     const q = queue.get(p.number) ?? null;
     const c = prChecks(p);
     const reviews = new Map();
-    for (const m of parseMarkers(p.comments ?? [])) if (m.kind === 'review' && m.agent) reviews.set(m.agent, { agent: m.agent, verdict: m.verdict, current: !!m.sha && String(p.headRefOid ?? '').startsWith(m.sha) });
+    // as crew-guard counts them: the author's own review is shown, but marked, because it does not count
+    const author = authorAgent(p.body);
+    for (const m of parseMarkers(p.comments ?? [])) {
+      const r = review(m, p.headRefOid ?? '');
+      if (r) reviews.set(m.agent, { ...r, own: !!author && sameAgent(m.agent, author) });
+    }
     return {
       number: p.number,
       title: p.title,
@@ -254,7 +271,8 @@ export function prsView(prs = [], { config = {}, now = Date.now() } = {}) {
 
 const DAY = 86400000;
 /** Activity: a feed of recent events (GitHub + this machine's crew metrics) and simple team-health series. */
-export function activityView({ closed = [], merged = [], events = [], stale = [], now = Date.now(), days = 7 } = {}) {
+export function activityView({ closed: allClosed = [], merged = [], events = [], stale = [], now = Date.now(), days = 7 } = {}) {
+  const closed = allClosed.filter(isDoneTask);
   // buckets are local days (the board runs on the captain's machine, as the page does): label them with the local
   // date, not toISOString, which is UTC and shifts every bar by a day east of Greenwich
   const series = [];
@@ -291,6 +309,26 @@ export function activityView({ closed = [], merged = [], events = [], stale = []
     stale,
     feed,
     metrics_local: events.length > 0,
+  };
+}
+
+/**
+ * The plan on the Discovery tab: the PRD in this folder, its revision, whether the captain approved exactly it, and
+ * whether main has the same text. text is shown so the captain approves what they read.
+ */
+export function planView({ text = '', rev, approval = {}, mainRev = null, tasks = null, file = 'docs/prd.md' } = {}) {
+  return {
+    file,
+    rev,
+    tasks,
+    approved: !!approval.approved,
+    approved_by: approval.by ?? null,
+    approved_at: approval.at ?? null,
+    // an older revision was approved: the PRD changed after that
+    changed_since: !approval.approved && (approval.revs ?? []).length > 0,
+    main_rev: mainRev,
+    same_as_main: mainRev === null ? null : mainRev === rev,
+    text: plain(text, 20000),
   };
 }
 

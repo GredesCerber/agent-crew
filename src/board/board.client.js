@@ -94,7 +94,17 @@ function ask({ title, text, ok, danger, placeholder }) {
     document.body.append(d); d.showModal(); note.focus();
   });
 }
-const releaseTask = async (n) => { const why = await ask({ title: 'Release the lease on #' + n + '?', text: 'The agent loses the task: it goes back to Ready and anyone may take it. Do this when the agent is gone or went the wrong way.', ok: 'Release lease', danger: true }); if (why !== null) act({ issue: n, op: 'release', reason: why }); };
+/**
+ * Release a lease. holder: the agent the person saw; the server refuses if someone else holds it by now.
+ * Without it (an alert line) the page asks the server who holds the task first, and names them in the question.
+ */
+async function releaseTask(n, holder) {
+  if (holder === undefined) {
+    try { holder = ((await api('/api/task?n=' + n)).owner || {}).agent || ''; } catch (x) { toast(x.message, true); return; }
+  }
+  const why = await ask({ title: 'Release the lease on #' + n + '?', text: (holder ? 'Held by ' + holder + '. ' : '') + 'The agent loses the task: it goes back to Ready and anyone may take it. Do this when the agent is gone or went the wrong way.', ok: 'Release lease', danger: true });
+  if (why !== null) act({ issue: n, op: 'release', reason: why, expect: holder });
+}
 function panel(title, ...kids) { return e('section', { class: 'panel' }, e('h2', {}, title), ...kids); }
 function panelH(title, extra, ...kids) { return e('section', { class: 'panel' }, e('div', { class: 'panel-h' }, e('h2', {}, title), extra || ''), ...kids); }
 function pageH(title, text) { return e('div', { class: 'page-h' }, e('h1', {}, title), e('p', {}, text)); }
@@ -118,7 +128,7 @@ async function api(path) {
 const SAID = {
   assign: (b) => (b.value ? 'assigned to @' + b.value : 'unassigned'), status: (b) => 'moved to ' + (LABEL[b.value] || b.value), priority: (b) => 'priority ' + b.value,
   idea: (b) => (b.value === 'accept' ? 'accepted as a task' : 'rejected'), release: () => 'lease released, back in Ready', answer: () => 'answer sent, question closed',
-  pause: () => 'team paused: agents stop taking tasks', resume: () => 'team resumed', handoff: (b) => '@' + b.value + ' acts as captain now', back: () => 'you are the captain again',
+  pause: () => 'team paused: agents stop taking tasks', resume: () => 'team resumed', handoff: (b) => '@' + b.value + ' acts as captain now', back: () => 'you are the captain again', 'approve-plan': () => 'plan approved',
 };
 async function act(body) {
   busy++;
@@ -146,7 +156,7 @@ function renderChrome() {
   $('main').setAttribute('aria-labelledby', 'tab-' + tab);
   if (hadFocus) $('tab-' + tab).focus(); // the tabs were rebuilt: keep the keyboard where it was
   const paused = m.paused || [];
-  $('pausebar').replaceChildren(...(paused.length ? [e('div', { class: 'pausebar' }, icon('pause'), 'The team is paused: agents do not take or claim tasks (' + paused.map((p) => '#' + p.number).join(', ') + ').', e('span', { class: 'grow' }), e('button', { class: 'btn', on: { click: () => act({ op: 'resume' }) } }, icon('play'), 'Resume'))] : []));
+  $('pausebar').replaceChildren(...(paused.length ? [e('div', { class: 'pausebar' }, icon('pause'), 'The team is paused: agents do not take or claim tasks (' + paused.map((p) => '#' + p.number).join(', ') + ').', e('span', { class: 'grow' }), e('button', { class: 'btn', on: { click: () => act({ op: 'resume', issues: paused.map((p) => p.number) }) } }, icon('play'), 'Resume'))] : []));
   $('pause').hidden = paused.length > 0;
 }
 function go(id) { tab = id; history.replaceState(null, '', '#' + id); view = null; viewError = null; if (model) renderChrome(); renderTab(); load(true); }
@@ -332,7 +342,7 @@ async function showTask(n, quiet) {
   if (ST.includes(t.status)) foot.append(e('label', { class: 'f' }, 'Status', sel('Status', ST.map((x) => [x, LABEL[x]]), t.status, (v) => act({ issue: t.number, op: 'status', value: v }))));
   foot.append(e('label', { class: 'f' }, 'Priority', sel('Priority', PR.map((x) => [x, x]), t.priority, (v) => act({ issue: t.number, op: 'priority', value: v }))));
   foot.append(e('span', { class: 'grow' }));
-  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => releaseTask(t.number) } }, icon('lock'), 'Release lease'));
+  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => releaseTask(t.number, (t.owner && t.owner.agent) || '') } }, icon('lock'), 'Release lease'));
   foot.append(e('a', { class: 'btn', href: gh('issues', t.number), target: '_blank', rel: 'noopener' }, icon('ext'), 'Open on GitHub'));
 }
 function closeTask() {
@@ -453,6 +463,33 @@ function renderDiscovery(root, v) {
   rightCol.append(ready);
   grid.append(rightCol);
   root.append(grid);
+  root.append(planPanel(v.plan));
+}
+
+/**
+ * The plan (docs/prd.md in this folder) and its approval. crew kickoff --apply creates tasks only from a revision the
+ * captain approved here; any edit makes a new revision. The page sends the revision it shows, so an approval is
+ * always for the text the person read.
+ */
+function planPanel(p) {
+  if (!p) return panel('The plan', empty('flag', 'No PRD yet', 'The planner writes docs/prd.md (crew-kickoff skill); it shows up here to read and approve.'));
+  const me = model.login; const cap = model.digest.captain;
+  const isCaptain = !cap || (me && [cap.captain, cap.acting && cap.acting.login].filter(Boolean).some((l) => l.toLowerCase() === me.toLowerCase()));
+  const state = p.approved
+    ? badge('good', 'ok', 'approved by @' + p.approved_by + (p.approved_at ? ' · ' + hhmm(p.approved_at) : ''))
+    : p.changed_since ? badge('warn', 'alert', 'changed since the last approval') : badge('warn', 'clock', 'not approved');
+  const head = e('div', { class: 'row' }, e('span', { class: 'ic' }, icon('flag')), e('div', { class: 'grow' }, e('b', {}, p.file), e('div', { class: 'hint mono' }, 'revision ' + p.rev + (p.tasks != null ? ' · ' + p.tasks + ' tasks' : ''))), state);
+  const notes = [];
+  if (p.same_as_main === false) notes.push(e('div', { class: 'hint' }, 'This folder has a different PRD than main (main: ' + (p.main_rev || 'none') + '). You approve the text below; crew kickoff --apply publishes it.'));
+  const body = e('details', { style: 'margin-top:10px' }, e('summary', {}, 'Read the plan'), e('pre', { class: 'body' }, p.text || '(empty)'));
+  const acts = e('div', { class: 'row', style: 'margin-top:12px' });
+  if (p.approved) acts.append(e('span', { class: 'hint' }, 'The captain runs crew kickoff --apply to create the tasks.'), copyBox('crew kickoff --apply'));
+  else if (!isCaptain) acts.append(e('span', { class: 'hint' }, 'Only the captain approves the plan' + (me ? ' (you are @' + me + ')' : '') + '.'));
+  else acts.append(e('button', { class: 'btn primary', on: { click: async () => {
+    const ok = await ask({ title: 'Approve revision ' + p.rev + '?', text: 'Agents will turn exactly this text into tasks. Any later edit needs a new approval. Agents never approve a plan themselves.', ok: 'Approve the plan', placeholder: 'Optional note (not posted)' });
+    if (ok !== null) act({ op: 'approve-plan', rev: p.rev });
+  } } }, icon('ok'), 'Approve the plan'), e('span', { class: 'hint' }, 'Read it first: this is what agents will build.'));
+  return panelH('The plan', '', head, ...notes, body, acts);
 }
 
 /* ---------- Pull requests ---------- */
@@ -469,7 +506,7 @@ function renderPrs(root, list) {
     tb.append(e('tr', {},
       e('td', {}, e('span', { class: 'mono muted' }, '#' + p.number), e('div', {}, link('pull', p.number, p.title)), p.issue ? e('button', { class: 'btn small', style: 'margin-top:4px', on: { click: () => showTask(p.issue) } }, 'task #' + p.issue) : ''),
       e('td', {}, p.author ? e('span', { class: 'chip' }, icon('cpu'), p.author) : e('span', { class: 'faint' }, 'not via crew')),
-      e('td', {}, rv.length ? rv.map((r) => e('div', {}, badge(r.verdict === 'approve' ? 'good' : 'bad', r.verdict === 'approve' ? 'ok' : 'x', r.agent))) : e('span', { class: 'faint' }, 'no review on this commit')),
+      e('td', {}, rv.length ? rv.map((r) => e('div', { title: r.own ? 'The author reviewed their own PR: crew-guard does not count it' : '' }, r.own ? badge('muted', 'user', r.agent + ' (own, not counted)') : badge(r.verdict === 'approve' ? 'good' : 'bad', r.verdict === 'approve' ? 'ok' : 'x', r.agent))) : e('span', { class: 'faint' }, 'no review on this commit')),
       e('td', {}, stateBadge(p.check, p.check || 'pending')),
       e('td', { title: p.guard_text || '' }, stateBadge(p.guard, p.guard === 'failure' && p.guard_text ? p.guard_text.slice(0, 48) : p.guard || 'pending')),
       e('td', {}, e('span', { class: 'chip risk-' + p.risk }, p.risk)),
@@ -510,8 +547,11 @@ const RENDER = { team: renderTeam, inbox: renderInbox, discovery: renderDiscover
 const PATH = { team: '/api/team', inbox: '/api/inbox', discovery: '/api/discovery', prs: '/api/prs', activity: '/api/activity' };
 const failed = (what, msg) => e('section', { class: 'panel' }, e('div', { class: 'empty' }, icon('alert'), e('b', {}, 'Could not load ' + what), e('span', {}, msg), e('button', { class: 'btn', on: { click: () => load(true) } }, 'Try again')));
 const TAB_NAME = Object.fromEntries(TABS.map((t) => [t[0], t[1]]));
+const staleBar = (msg) => e('div', { class: 'pausebar warn', role: 'alert' }, icon('alert'), 'Could not refresh: ' + msg + '. This is older data.', e('span', { class: 'grow' }), e('button', { class: 'btn', on: { click: () => load(true) } }, 'Try again'));
 function renderTab() {
   const root = $('main'); const keep = root.scrollTop; root.replaceChildren();
+  const old = tab === 'board' ? model && boardError : view && (viewError || boardError);
+  if (old) root.append(staleBar(tab === 'board' ? boardError : viewError || boardError));
   if (tab === 'board' && model) renderBoard(root);
   else if (tab === 'board') root.append(boardError ? failed('the board', boardError) : e('div', { class: 'hint' }, 'Loading…'));
   else if (view && model) RENDER[tab](root, view);

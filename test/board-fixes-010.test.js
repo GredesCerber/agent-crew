@@ -50,7 +50,7 @@ test('timeline: status markers read state=, heartbeats collapse, the first claim
     comment('<!-- crew:status agent=claude@pc state=blocked -->', 100),
     comment('<!-- crew:heartbeat agent=claude@pc -->', 90),
   ];
-  const pr = { number: 9, title: 'Fix', body: 'Closes #5\n\n**Agent:** `codex@pc`', createdAt: ago(60), comments: [comment('<!-- crew:review agent=claude@pc verdict=approve sha=abc -->', 30)] };
+  const pr = { number: 9, title: 'Fix', body: 'Closes #5\n\n**Agent:** `codex@pc`', headRefOid: 'abcdef1234', createdAt: ago(60), comments: [comment('<!-- crew:review agent=claude@pc verdict=approve sha=abcdef1 -->', 30), comment('<!-- crew:review agent=bot verdict=approve sha=abcdef1 -->', 20, 'github-actions[bot]'), comment('<!-- crew:review agent=x verdict=approve sha=abc -->', 10)] };
   const tl = taskTimeline({ comments }, pr, ago(70));
   assert.deepEqual(tl.map((x) => x.kind), ['claim', 'heartbeat', 'status', 'heartbeat', 'commit', 'pr', 'review']);
   assert.equal(tl[1].title, 'Heartbeat ×30');

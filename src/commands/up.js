@@ -1,6 +1,7 @@
 // crew up — set everything up with one command (run by an agent following docs/AGENT-SETUP.md).
 //   Captain:   crew up <dir> --repo owner/name [--stack web-node] [--public] [--invite a,b] [--start ISO --end ISO]
 //              project → event.json → first commit → GitHub repo → invitations → main protection, labels, CREW_HARNESS.
+//              --check: only look (gh, the owner, the plan, main protection, agents) and say what would block; writes nothing.
 //   Member:    crew up --join owner/name [<dir>]
 //              accept the invitation → clone → agent configs → check the machine.
 // Every step first checks whether it is already done, so a re-run continues from the point of failure.
@@ -141,6 +142,53 @@ function checkHosts(j, sh, hosts) {
   return hosts.filter((h) => !missing.includes(h));
 }
 
+const PAID_PLANS = ['pro', 'team', 'business', 'enterprise', 'business_plus', 'enterprise_cloud'];
+
+/**
+ * What GitHub will allow, read before anything is written. → { blockers, warnings, facts }.
+ * protection: available (public, or a paid plan), unavailable (a private repo on the free plan: main cannot be
+ * protected, so PR rules and checks bind nobody), unverified (the plan could not be read).
+ */
+export function preflight(o, sh, me) {
+  const blockers = [];
+  const warnings = [];
+  const repo = o.repo;
+  const [owner] = repo.split('/');
+  const view = sh('gh', ['repo', 'view', repo, '--json', 'visibility,viewerPermission'], { allowFail: true });
+  let existing = null;
+  try { existing = view.code === 0 ? JSON.parse(view.stdout || 'null') : null; } catch { existing = null; }
+  const mine = owner.toLowerCase() === me.login.toLowerCase();
+  if (existing) {
+    if (existing.viewerPermission && existing.viewerPermission !== 'ADMIN') {
+      blockers.push(`you are ${existing.viewerPermission} on ${repo}: main protection, labels and invitations need admin rights (the repo owner runs crew up, or gives you admin)`);
+    }
+  } else if (!mine) {
+    const m = sh('gh', ['api', `orgs/${owner}/memberships/${me.login}`, '--jq', '.role'], { allowFail: true });
+    if (m.code !== 0) blockers.push(`${repo} does not exist and you cannot create repos under ${owner}: it is not you (${me.login}) and not an organization you belong to — check --repo`);
+  }
+  const visibility = existing?.visibility ? String(existing.visibility).toLowerCase() : o.public ? 'public' : 'private';
+  let protection = 'available';
+  let plan = null;
+  if (visibility !== 'public') {
+    const p = sh('gh', ['api', mine ? 'user' : `orgs/${owner}`, '--jq', '.plan.name'], { allowFail: true });
+    plan = p.code === 0 ? String(p.stdout || '').trim().toLowerCase() : '';
+    protection = plan === 'free' ? 'unavailable' : PAID_PLANS.includes(plan) ? 'available' : 'unverified';
+  }
+  const why = `${visibility} repo${plan ? ` on the ${plan} plan` : ''}`;
+  if (protection === 'unavailable') {
+    const msg = `main protection is unavailable (${why}): PRs could merge without review or checks. Use --public, or a paid GitHub plan, or pass --no_protection to set up anyway and accept that`;
+    if (existing || o.no_protection) warnings.push(msg);
+    else blockers.push(msg);
+  } else if (protection === 'unverified') {
+    warnings.push(`could not read the GitHub plan of ${owner}: main protection on a private repo needs a paid plan; crew up will check again after it tries`);
+  }
+  if (tool(sh, 'crew', ['--version']).code !== 0) warnings.push('crew is not on PATH: the agents\' MCP config will not start (npm install -g @gredescerber/agent-crew)');
+  const hosts = String(o.hosts ?? 'claude,codex').split(',').map((h) => h.trim()).filter(Boolean);
+  const found = hosts.filter((h) => tool(sh, h, ['--version']).code === 0);
+  if (!found.length) warnings.push(`no agent found (${hosts.join(', ')}): install at least one before the team starts`);
+  return { blockers, warnings, facts: { repo, exists: !!existing, visibility, plan, protection, agents: found } };
+}
+
 async function lead(o, sh) {
   const j = journal();
   const { repo, stack = 'web-fastapi', harness = DEFAULT_HARNESS } = o;
@@ -159,6 +207,22 @@ async function lead(o, sh) {
 
   const me = checkMachine(j, sh);
   if (me.status === 'error') return me;
+
+  // 1b. Look before writing: a team must not learn after setup that main cannot be protected.
+  const pre = preflight(o, sh, me);
+  if (o.check) {
+    const opts = { artifacts: { ...pre.facts, blockers: pre.blockers, warnings: pre.warnings, steps: j.steps }, next_actions: pre.blockers.length ? pre.blockers : [`crew up ${o.dir ?? repo.split('/')[1]} --repo ${repo}${o.public ? ' --public' : ''} (the same command without --check)`] };
+    if (pre.blockers.length) return fail('preflight', `crew up would stop: ${pre.blockers.length} problem(s) to fix first`, { cause_hint: pre.blockers[0], retry: `fix it, then crew up ... --check again`, stop_when: 'a blocker only a person can change (plan, rights, repo name): tell them', ...opts });
+    return (pre.warnings.length ? warn : ok)(`Ready to set up ${repo}: ${pre.facts.visibility}, main protection ${pre.facts.protection}${pre.warnings.length ? `, ${pre.warnings.length} warning(s)` : ''} (nothing was changed)`, opts);
+  }
+  if (pre.blockers.length) {
+    return stop(j, 'preflight', `Not starting: ${pre.blockers[0]}`, {
+      cause_hint: pre.blockers.join(' | '),
+      retry: 'fix it and run the same crew up command (crew up ... --check shows the problems without changing anything)',
+      stop_when: 'a blocker only a person can change (plan, rights, repo name): tell them',
+    });
+  }
+  for (const w of pre.warnings) j.add('preflight', 'skipped', w);
 
   // 2. Project
   if (existsSync(join(root, 'crew.config.json'))) j.add('init', 'skipped', `${root} already exists`);
@@ -365,7 +429,9 @@ export default {
     { name: 'repo', type: 'string', description: 'captain: owner/name of the new product repo' },
     { name: 'join', type: 'string', description: 'member: owner/name of the existing repo' },
     { name: 'stack', type: 'string', description: 'captain: stack preset (web-fastapi, web-node)' },
-    { name: 'public', type: 'boolean', description: 'captain: public repo (private by default)' },
+    { name: 'public', type: 'boolean', description: 'captain: public repo (private by default; a private repo on the free GitHub plan cannot protect main)' },
+    { name: 'check', type: 'boolean', description: 'captain: only check what would block the setup (plan, rights, main protection, agents); changes nothing' },
+    { name: 'no_protection', type: 'boolean', description: 'captain: set up a private repo on the free plan anyway, knowing main stays unprotected' },
     { name: 'invite', type: 'string', description: 'captain: GitHub logins, comma-separated — invite with write access' },
     { name: 'start', type: 'string', description: 'captain: event start, ISO (together with --end enables the compliance check)' },
     { name: 'end', type: 'string', description: 'captain: event end, ISO' },

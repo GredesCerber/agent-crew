@@ -15,7 +15,7 @@ const minsSince = (now, iso) => Math.max(0, Math.round((now - Date.parse(iso ?? 
 const names = (xs) => (xs ?? []).map((x) => x.name);
 
 /** -> { sections: [{ key, title, lines }], counts } (pure, no network). */
-export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, acting = null, collaborators = [], config = {}, now = Date.now() } = {}) {
+export function digestModel({ issues = [], prs = [], questions = [], ideas = [], team = null, claimComments = {}, lastCommits = {}, acting = null, collaborators = [], config = {}, now = Date.now() } = {}) {
   const lease = config.lease_minutes ?? 45;
   const reviewWait = config.review?.fallback_minutes ?? 30;
   const st = (i) => labelValue(i, 'status');
@@ -28,11 +28,15 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
     .map((q) => `#${q.number} ${q.title} (asked by ${questionMeta(q)?.from ?? 'an agent'})`);
   const blocked = tasks.filter((i) => ['blocked', 'needs-spec'].includes(st(i))).map((i) => `#${i.number} ${i.title} (${st(i)}, ${who(i)})`);
   // Same rule as the sweep: the owner's last crew marker, not the issue's updatedAt (any bystander comment bumps that).
+  // A commit on the task branch counts too (lastCommits: issue number -> ISO), so the board never calls a lease stale
+  // that the sweep and the task drawer still see as alive.
   const quiet = (i) => {
+    const commit = lastCommits[i.number] ?? null;
     const c = claimComments[i.number];
-    if (!c) return { stale: minsSince(now, i.updatedAt) > lease, min: minsSince(now, i.updatedAt) };
-    const s = ownerState(c, { now, leaseMinutes: lease });
-    return { stale: s.stale, min: minsSince(now, s.lastActivityAt ?? i.updatedAt) };
+    const s = c ? ownerState(c, { now, leaseMinutes: lease, lastCommitAt: commit }) : null;
+    const times = [s ? s.lastActivityAt ?? i.updatedAt : i.updatedAt, commit].map((t) => Date.parse(t ?? '')).filter(Number.isFinite);
+    const min = times.length ? Math.max(0, Math.round((now - Math.max(...times)) / 60000)) : 0;
+    return { stale: s ? s.stale : min > lease, min };
   };
   const stale = claimed.filter((i) => quiet(i).stale)
     .map((i) => `#${i.number} ${i.title} (${who(i)}, quiet ${quiet(i).min} min, lease ${lease})`);

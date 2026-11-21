@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parsePrd, lintPrd, planKickoff, areaOwners, teamReviewers } from '../src/core/prd.js';
+import { parsePrd, lintPrd, planKickoff, areaOwners, teamReviewers, prdRevision, approvalComment, PRD_APPROVAL_LABEL } from '../src/core/prd.js';
 import { prQueue, taskOrder, prChecks } from '../src/core/queue.js';
 import { runKickoff, publishPlan } from '../src/commands/kickoff.js';
 import task from '../src/commands/task.js';
@@ -73,7 +73,9 @@ function project(prd) {
   writeFileSync(join(root, 'docs', 'prd.md'), prd);
   return root;
 }
-function fakeGh({ login = 'cap', outsiders = [] } = {}) {
+// the captain approved exactly this PRD (crew board writes this comment on the approvals issue)
+const approvedBy = (prd, login = 'cap') => [{ number: 50, comments: [{ body: approvalComment({ rev: prdRevision(prd), login }), author: { login }, authorAssociation: 'OWNER' }] }];
+function fakeGh({ login = 'cap', outsiders = [], prd = PRD(team('cap: api, infra, review', 'bob: web', 'dana: design')) } = {}) {
   const calls = [];
   let n = 1;
   const labels = ['epic', ...Object.keys(AREAS).map((a) => `area:${a}`), 'status:ready', 'status:waiting', 'status:needs-spec', 'tier:mid', 'tier:high', 'risk:med', 'risk:high'];
@@ -82,7 +84,7 @@ function fakeGh({ login = 'cap', outsiders = [] } = {}) {
     if (args[0] === 'api' && args[1] === 'user') return { code: 0, stdout: `${login}\n`, stderr: '' };
     if (args[0] === 'api' && /\/collaborators\//.test(args[1])) return { code: outsiders.includes(args[1].split('/').pop()) ? 1 : 0, stdout: '', stderr: '' };
     if (args[0] === 'label') return { code: 0, stdout: JSON.stringify(labels.map((name) => ({ name }))), stderr: '' };
-    if (args[0] === 'issue' && args[1] === 'list') return { code: 0, stdout: '[]', stderr: '' };
+    if (args[0] === 'issue' && args[1] === 'list') return { code: 0, stdout: args.includes(PRD_APPROVAL_LABEL) ? JSON.stringify(approvedBy(prd)) : '[]', stderr: '' };
     if (args[0] === 'issue' && args[1] === 'create') return { code: 0, stdout: `https://github.com/a/b/issues/${n++}`, stderr: '' };
     return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` };
   };

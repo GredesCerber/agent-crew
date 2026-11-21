@@ -81,6 +81,62 @@ export function planSetup({ repo, harness = DEFAULT_HARNESS, labels = [], branch
   ];
 }
 
+/**
+ * Keep what an existing repo already enforces on the branch (pure). PUT replaces the whole protection, so without this
+ * a pilot in a live repo would drop its own required checks and reviews. Rules are only added or made stricter:
+ * required checks are the union, review counts take the maximum, flags stay on if they were on.
+ * existing: GET .../protection (or null). → { body, kept: [what was kept], warnings }
+ */
+export function mergeProtection(body, existing) {
+  if (!existing || typeof existing !== 'object') return { body, kept: [], warnings: [] };
+  const kept = [];
+  const warnings = [];
+  const out = structuredClone(body);
+  const rsc = existing.required_status_checks;
+  if (rsc) {
+    const have = new Set(out.required_status_checks.checks.map((c) => c.context));
+    const theirs = rsc.checks?.length ? rsc.checks : (rsc.contexts ?? []).map((context) => ({ context }));
+    for (const c of theirs) {
+      if (have.has(c.context)) continue;
+      out.required_status_checks.checks.push(Number.isInteger(c.app_id) && c.app_id > 0 ? { context: c.context, app_id: c.app_id } : { context: c.context });
+      have.add(c.context);
+      kept.push(`required check ${c.context}`);
+    }
+    if (rsc.strict) { out.required_status_checks.strict = true; kept.push('branches must be up to date before merging'); }
+  }
+  const rv = existing.required_pull_request_reviews;
+  if (rv) {
+    const want = out.required_pull_request_reviews;
+    if ((rv.required_approving_review_count ?? 0) > want.required_approving_review_count) {
+      want.required_approving_review_count = rv.required_approving_review_count;
+      kept.push(`${rv.required_approving_review_count} approving review(s) from a person`);
+    }
+    for (const k of ['require_code_owner_reviews', 'dismiss_stale_reviews', 'require_last_push_approval']) {
+      if (rv[k]) { want[k] = true; kept.push(k.replaceAll('_', ' ')); }
+    }
+  }
+  if (existing.enforce_admins?.enabled) { out.enforce_admins = true; kept.push('rules apply to admins too'); }
+  if (existing.required_conversation_resolution?.enabled) { out.required_conversation_resolution = true; kept.push('conversations resolved before merging'); }
+  if (existing.required_linear_history?.enabled) {
+    out.required_linear_history = true;
+    kept.push('linear history');
+    warnings.push('the branch requires linear history, but crew merges with merge commits (squash loses the Agent trailers): crew PRs will not merge until a person turns linear history off');
+  }
+  const r = existing.restrictions;
+  if (r && (r.users?.length || r.teams?.length || r.apps?.length)) {
+    out.restrictions = { users: (r.users ?? []).map((u) => u.login), teams: (r.teams ?? []).map((t) => t.slug), apps: (r.apps ?? []).map((a) => a.slug) };
+    kept.push('who may push');
+  }
+  return { body: out, kept, warnings };
+}
+
+/** The current protection of the branch, or null (none, or no right to read it). */
+function currentProtection(repo, branch, cwd, sh) {
+  const r = sh('gh', ['api', `repos/${repo}/branches/${encodeURIComponent(branch)}/protection`], { cwd, allowFail: true });
+  if (r.code !== 0) return null;
+  try { return JSON.parse(r.stdout || 'null'); } catch { return null; }
+}
+
 const is404 = (r) => /HTTP 404|Not Found/i.test(r.stderr + r.stdout);
 
 function call({ method, path, body }, cwd, sh = run) {
@@ -136,14 +192,20 @@ export default {
     }
     const labels = allLabels(config);
     const plan = planSetup({ repo: resolved ?? '<owner>/<name>', harness, labels, branch });
+    // an existing repo keeps its own required checks and review rules: crew adds to them, never removes them
+    const merged = resolved ? mergeProtection(plan.at(-1).body, currentProtection(resolved, branch, root, sh)) : { kept: [], warnings: [] };
+    if (merged.body) {
+      plan.at(-1).body = merged.body;
+      if (merged.kept.length) plan.at(-1).summary += `; kept from the existing rules: ${merged.kept.join(', ')}`;
+    }
 
     if (!apply) {
       const summary = `Setup plan for ${resolved ?? '<owner>/<name>'}: ${plan.length} gh api calls (dry-run, nothing changed)`;
       const opts = {
-        artifacts: { repo: resolved, apply: false, plan },
-        next_actions: [resolved ? `crew github setup --repo ${resolved} --apply` : 'crew github setup --repo <owner>/<name> --apply'],
+        artifacts: { repo: resolved, apply: false, plan, kept: merged.kept, warnings: merged.warnings },
+        next_actions: [...merged.warnings, resolved ? `crew github setup --repo ${resolved} --apply` : 'crew github setup --repo <owner>/<name> --apply'],
       };
-      return resolved ? ok(summary, opts) : warn(summary + ' — repo not determined, pass --repo', opts);
+      return resolved && !merged.warnings.length ? ok(summary, opts) : warn(summary + (resolved ? '' : ' — repo not determined, pass --repo'), opts);
     }
 
     if (sh('gh', ['auth', 'status'], { cwd: root, allowFail: true }).code !== 0) {
@@ -159,11 +221,9 @@ export default {
         artifacts: { repo: resolved, results },
       });
     }
-    return ok(`Repo ${resolved} configured: ${results.length} steps`, {
-      artifacts: { repo: resolved, results },
-      next_actions: [
-        'crew status',
-      ],
+    return (merged.warnings.length ? warn : ok)(`Repo ${resolved} configured: ${results.length} steps${merged.kept.length ? ` (kept ${merged.kept.length} existing rule(s))` : ''}`, {
+      artifacts: { repo: resolved, results, kept: merged.kept, warnings: merged.warnings },
+      next_actions: [...merged.warnings, 'crew status'],
     });
   },
 };

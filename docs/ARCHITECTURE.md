@@ -73,7 +73,8 @@ export default {
 An LLM (the planner) writes only `docs/prd.md` with `crew-team`, `crew-task` and `crew-epic` blocks (format: `skills/crew-kickoff/task-format.md`).
 Everything else is deterministic code: `crew task lint` (`lintPrd`, all errors at once, `prd_invalid`) ->
 `crew kickoff` (dry run: `planKickoff(parsed, existing)` -> create/skip/changed/orphan) ->
-`crew kickoff --apply` (only with an `<!-- crew:prd status: approved … -->` header, otherwise `plan_not_approved`;
+`crew kickoff --apply` (only when the captain approved this PRD revision, a sha256 of its text recorded as a
+`<!-- crew:prd-approved rev=… -->` comment by the captain on the `crew:prd-approval` issue, otherwise `plan_not_approved`;
 sequential `gh issue create` with a 1 s pause and retries on rate limit after 10/30/60 s; a failure midway is `kickoff_partial`).
 Idempotency comes from the marker `<!-- crew:task id=T2 hash=… prd=… -->` in the issue body; existing issues are not modified.
 Dependencies: every task implicitly waits for the skeleton; a task with dependencies gets `status:waiting` + `<!-- crew:after issues=N,M -->`.

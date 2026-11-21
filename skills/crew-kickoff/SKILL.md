@@ -17,7 +17,7 @@ Block format: `agents/skills/crew-kickoff/task-format.md` (it has a full example
 - Every task has `req: [R…]` — the brief requirements it covers.
 
 ## 2. PRD (`docs/prd.md`), at most one page of text + blocks
-The template is already in `docs/prd.md`. The first line is the header `<!-- crew:prd status: draft by: - at: - -->`; do not touch it until approval.
+The template is already in `docs/prd.md`. The first line is the header `<!-- crew:prd status: draft by: - at: - -->`: a note for readers, it does not approve anything.
 - Problem and who it is for (1–2 sentences).
 - **Demo path**: 3–7 steps that stakeholders will see in the demo (judges in event mode), referencing `R…`.
 - 1–2 main scenarios. A "NOT doing" list.
@@ -63,10 +63,10 @@ Error → fix `docs/prd.md` using `artifacts.errors` (it has the line, id, rule)
 
 ## 5. Approval
 1. `crew kickoff` (dry-run) — the plan: what will be created, statuses, order.
-2. Show the PRD and the plan to the human (product lead) and ask "ok?".
-3. They answered "ok" → set the header `<!-- crew:prd status: approved by: <their-login> at: <ISO-time> -->`.
-   **No answer in 20 minutes** → set `<!-- crew:prd status: approved by: auto-timeout at: <ISO-time> -->` and tell the people it was approved by timeout.
-4. `crew kickoff --apply` (on branch `main`). Without an `approved` header the command answers `plan_not_approved` — do not work around it.
+2. Show the PRD and the plan to the captain and ask them to approve it: on `crew board` → Discovery → The plan → **Approve the plan** (it shows the revision `crew kickoff` printed).
+3. Wait for the approval. **You never approve the plan yourself**: do not edit the header to `approved`, do not write the `crew:prd-approved` comment, not even after a long silence. If nobody answers, remind the captain and work on nothing else from this plan.
+   Any edit to `docs/prd.md` after the approval changes its revision and needs a new approval: show the captain what changed.
+4. `crew kickoff --apply` (on branch `main`). Without an approval of exactly this revision it answers `plan_not_approved` — do not work around it.
    It also commits `docs/brief.md`, `docs/brief-analysis.md`, `docs/prd.md` and pushes to main so the team sees the plan. If that fails, `warnings` say what to do.
 
 `--apply` answers: `labels_missing` → ask the human to run `crew labels sync`; `kickoff_partial` → just repeat `crew kickoff --apply` (already-created items are skipped by their markers).

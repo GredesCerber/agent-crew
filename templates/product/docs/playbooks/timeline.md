@@ -11,7 +11,7 @@ In a normal project the limits are guidelines; scale the absolute numbers to the
 | 0 | **Brief** | human | 10 min | the brief as is in `docs/brief.md` | — |
 | 1 | **Brief analysis** | the analyst agent (`crew-brief-analysis`) | 30 min | `docs/brief-analysis.md`: **demo scenario**, `R*`, stakeholder criteria, assumptions | hand in with assumptions |
 | 2 | **Plan** | planner (`crew-kickoff`) | 30 min | `docs/prd.md` + `architecture.md`, `crew task lint` is green | cut the scope to the demo path |
-| 3 | **Approval** | product lead | 15 min | the PRD has `status: approved` | **after 20 min without an answer** the planner sets `approved by: auto-timeout` |
+| 3 | **Approval** | captain | 15 min | the captain pressed **Approve the plan** on `crew board` (Discovery) | after 20 min without an answer the planner reminds the captain again; it never approves itself |
 | 4 | **Tasks** | planner: `crew kickoff --apply` | 5 min | issues are created | — |
 | 5 | **Skeleton + contracts** | 1–2 agents, `risk:high` | 90 min | web → api → DB is deployed, the E2E hello-world is green, `contracts/api.yaml` | a human looks at what blocks (often — access) |
 | 6 | **Build** | all workers | until T−6 | tasks are moving, main is green | — |

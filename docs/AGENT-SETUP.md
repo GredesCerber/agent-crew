@@ -47,7 +47,7 @@ Take the parameters from the human's message. If something is missing, ask once 
 - `--repo <owner>/<name>`: the new product repo.
 - `--stack web-node | web-fastapi`: the stack (React + Node.js or React + FastAPI).
 - `--invite alice,bob`: GitHub logins of the members.
-- `--public`: a public repo. On the free GitHub plan a private repo cannot have branch protection, and the `github-setup` step fails with HTTP 403. Unless the human says otherwise, use a public repo (or they need GitHub Pro/Team).
+- `--public`: a public repo. On the free GitHub plan a private repo cannot have branch protection: `crew up` checks the plan first and stops with `preflight` before it writes anything. Unless the human says otherwise, use a public repo (or they need GitHub Pro/Team, or say `--no_protection` knowingly).
 - `--hosts claude,codex`: agent hosts (default `claude,codex`).
 - The captain rule: **ask the human (the repo owner) before running `crew up`**, in their language. The captain (whoever runs `crew up`) is the only one who plans, accepts or rejects ideas and gets questions that need a human. Ask: may someone else act as captain when the captain or their agent is away (for example, out of usage)?
   - No → `--handover off` (the default): those things wait for the captain.
@@ -57,9 +57,10 @@ Take the parameters from the human's message. If something is missing, ask once 
   It can be changed later with `crew captain policy`.
 - Optional event mode: `--start <ISO> --end <ISO>` (with a time zone, e.g. `2026-11-10T10:00:00+03:00`) and `--event-name "<name>"`. Without them, compliance checks are off.
 
-Run from the folder **in which** the project should be created:
+Run from the folder **in which** the project should be created. First the same command with `--check`: it reads the plan, rights and tools and changes nothing. Show its `blockers` to the human if there are any.
 
 ```bash
+crew up <folder> --repo <owner>/<name> --stack web-node --invite alice,bob --public --check
 crew up <folder> --repo <owner>/<name> --stack web-node --invite alice,bob --public
 ```
 

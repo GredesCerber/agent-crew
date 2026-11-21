@@ -65,7 +65,11 @@ test('HTTP: host check, token check, actions go through gh only after validation
   t.after(() => server.close());
   const base = `http://127.0.0.1:${port}`;
 
-  assert.equal((await fetch(`${base}/`)).status, 200);
+  assert.equal((await fetch(`${base}/`)).status, 403, 'the page itself needs the key from the printed address');
+  assert.equal((await fetch(`${base}/?t=wrong`)).status, 403);
+  const page = await fetch(`${base}/?t=tok`);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('referrer-policy'), 'no-referrer', 'the key never leaks to GitHub links');
   assert.equal((await fetch(`${base}/api/board`)).status, 403, 'no token');
   const board = await (await fetch(`${base}/api/board`, { headers: { 'x-crew-token': 'tok' } })).json();
   assert.equal(board.columns.ready[0].number, 7);

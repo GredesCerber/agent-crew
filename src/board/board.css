@@ -174,3 +174,4 @@ dialog.ask{border:1px solid var(--line);border-radius:14px;background:var(--pane
 dialog.ask::backdrop{background:rgb(10 14 22/.45)}dialog.ask h2{margin:0 0 6px;font-size:18px}dialog.ask p{margin:0 0 12px}
 #time.bad{color:var(--red);font-weight:600}
 .tab:focus-visible,.card:focus-visible,.btn:focus-visible,.prchip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pausebar.warn{background:var(--amber-soft,#fff4e0);color:var(--ink);margin:0 0 12px;border-radius:12px}

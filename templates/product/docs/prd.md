@@ -3,9 +3,8 @@
 
 > Written by the planner from `docs/brief.md` and `docs/brief-analysis.md` (skill `crew-kickoff`), at most one page of text + task blocks.
 > Block format — `agents/skills/crew-kickoff/task-format.md`. Check: `crew task lint`. Plan: `crew kickoff`.
-> The header on the first line is the approval. `crew kickoff --apply` creates issues only with
-> `<!-- crew:prd status: approved by: <github-login> at: <ISO-time> -->`
-> (no answer from the product lead in 20 minutes — the planner sets `by: auto-timeout`).
+> The header on the first line is a note. `crew kickoff --apply` creates issues only when the captain approved this exact
+> text on `crew board` → Discovery → **Approve the plan** (any later edit needs a new approval; agents never approve).
 
 ## Problem and who it is for
 

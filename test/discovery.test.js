@@ -12,6 +12,7 @@ import { runKickoff } from '../src/commands/kickoff.js';
 import { digestModel, renderDigest } from '../src/core/digest.js';
 import { DEFAULT_CONFIG } from '../src/core/config.js';
 import { allLabels } from '../src/commands/labels.js';
+import { prdRevision, approvalComment, PRD_APPROVAL_LABEL } from '../src/core/prd.js';
 
 const ROOT = join(import.meta.dirname, '..');
 const cmd = (name) => discoverCmds.find((c) => c.name === name);
@@ -98,6 +99,11 @@ test('kickoff --apply waits for discovery; --skip_discovery is the human overrid
   const creates = [];
   const gh = (args) => {
     if (args[0] === 'label' && args[1] === 'list') return { code: 0, stdout: JSON.stringify(allLabels(DEFAULT_CONFIG).map((l) => ({ name: l.name }))) };
+    // the plan itself is approved: what stops kickoff here is discovery
+    if (args[0] === 'issue' && args[1] === 'list' && args.includes(PRD_APPROVAL_LABEL)) {
+      const rev = prdRevision(readFileSync(join(root, 'docs', 'prd.md'), 'utf8'));
+      return { code: 0, stdout: JSON.stringify([{ number: 50, comments: [{ body: approvalComment({ rev, login: 'alice' }), author: { login: 'alice' }, authorAssociation: 'OWNER' }] }]) };
+    }
     if (args[0] === 'issue' && args[1] === 'list') return { code: 0, stdout: '[]' };
     if (args[0] === 'api') return { code: 0, stdout: '' };
     if (args[0] === 'issue' && args[1] === 'create') { creates.push(args); return { code: 0, stdout: `https://github.com/o/r/issues/${creates.length}` }; }

@@ -112,7 +112,7 @@ test('pull requests: author, reviews on the current commit, guard text, next ste
   assert.equal(by[2].conflict, true);
   assert.equal(by[2].guard_text, 'protected files: crew.config.json');
   assert.equal(by[3].kind, 'merge');
-  assert.deepEqual(by[3].reviews, [{ agent: 'codex@m', verdict: 'approve', current: true }]);
+  assert.deepEqual(by[3].reviews, [{ agent: 'codex@m', verdict: 'approve', current: true, own: false }]);
 });
 
 test('activity: done per day, claim-to-PR per agent from metrics, feed newest first', () => {

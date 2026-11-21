@@ -15,7 +15,7 @@ export const BOARD_STATUSES = ['ready', 'blocked', 'needs-spec', 'waiting'];
 
 const prio = (i) => labelValue(i, 'priority') ?? 'normal';
 
-export function boardModel({ issues = [], prs = [], members = [], questions = [], ideas = [], team = null, claimComments = {}, config = {}, now = Date.now() } = {}) {
+export function boardModel({ issues = [], prs = [], members = [], questions = [], ideas = [], team = null, claimComments = {}, lastCommits = {}, config = {}, now = Date.now() } = {}) {
   const columns = Object.fromEntries(COLUMNS.map((c) => [c, []]));
   const other = [];
   for (const i of issues) {
@@ -40,7 +40,7 @@ export function boardModel({ issues = [], prs = [], members = [], questions = []
     kind: x.kind, number: x.number, title: x.title, risk: x.risk, age_min: x.age, reason: x.reason ?? null, have: x.have ?? null, need: x.need ?? null,
   }));
   // Captain panel: the same status crew digest posts to the pinned issue.
-  const digest = digestModel({ issues, prs, questions, ideas, team, claimComments, collaborators: members, config, now });
+  const digest = digestModel({ issues, prs, questions, ideas, team, claimComments, lastCommits, collaborators: members, config, now });
   const ideaList = ideas.map((i) => ({ number: i.number, title: i.title, who: ideaMeta(i)?.who ?? null }));
   return { columns, untracked: other.length, prs: queue, digest, ideas: ideaList, members: [...new Set(members)].sort((a, b) => a.localeCompare(b)), generated_at: new Date(now).toISOString() };
 }
@@ -89,7 +89,7 @@ export function actionArgs({ op, value, reason }, current, { members = [], login
     // does; otherwise agents get claim_conflict until that lease ages out. From blocked the agent held it: free the
     // assignees too, as Release lease does, or the card keeps an owner who no longer works on it.
     if (to === 'ready' && from.includes('blocked')) for (const a of current.assignees ?? []) args.push('--remove-assignee', a.login);
-    if (to === 'ready') return { args, comment: `${marker('release', { agent: 'crew-board', at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board.` };
+    if (to === 'ready') return { args, commentFirst: true, comment: `${marker('release', { agent: 'crew-board', at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board.` };
     return { args };
   }
   if (op === 'priority') {
@@ -108,7 +108,7 @@ export function actionArgs({ op, value, reason }, current, { members = [], login
     const args = ['issue', 'edit', n, '--add-label', 'status:ready'];
     for (const f of from) if (f !== 'ready') args.push('--remove-label', `status:${f}`);
     for (const a of current.assignees ?? []) args.push('--remove-assignee', a.login);
-    return { args, comment: `${marker('release', { agent: `crew-board@${login ?? 'human'}`, at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board${login ? ` by @${login}` : ''}: the lease is free. ${safeText(String(reason ?? '')).slice(0, 500)}`.trim() };
+    return { args, commentFirst: true, comment: `${marker('release', { agent: `crew-board@${login ?? 'human'}`, at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board${login ? ` by @${login}` : ''}: the lease is free. ${safeText(String(reason ?? '')).slice(0, 500)}`.trim() };
   }
   if (op === 'answer') {
     // a person answers a question an agent asked: the asker gets it through crew task next (kind: answered)
