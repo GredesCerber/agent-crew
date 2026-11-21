@@ -8,8 +8,18 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 ### Added
 - **The captain's console.** `crew board` is now a full console, designed from mockups: a kanban with drag and drop (to another status, or onto a person to assign), a task drawer (goal, acceptance criteria, owner and lease time left, timeline of claims and heartbeats, dependencies, the linked PR with checks and crew-guard, Release lease), and screens for Team & roles (areas, current work, agents, done this week, hand the captain role over or take it back), Inbox (accept or reject ideas, answer questions for a human: the agent gets the answer through `crew task next`), Discovery (research against its time budget, exit criteria, decisions, what blocks `crew kickoff --apply`), Pull requests (filters, review state on the current commit, checks, crew-guard rule, the next step) and Activity (this week's feed, tasks done per day, claim-to-PR time, stale leases), plus a Pause team / Resume button (`crew:pause`). Light and dark themes, phone layout; every change is validated again on the server.
 
+### Fixed
+- `crew board` no longer stops when a `gh` call fails during an action (or the request body is not a JSON object): the page gets an error and the board keeps running. A screen whose data could not load says so and offers Try again, instead of showing an empty list.
+- In the task timeline, status changes show the new status (they read `state=`), heartbeats in a row collapse into one line so the claim stays visible, and "Accepted from an idea" shows up (crew markers with a hyphen are parsed now).
+- Tasks done per day uses local dates, so east of UTC a task closed today no longer lands on yesterday's bar.
+- If `gh` once failed to return the login, the board no longer remembers that until a restart (Accept refused, answers signed `@human`).
+- Moving a blocked card to Ready also frees its assignees, as Release lease does.
+- An automatic refresh no longer resets the hand-over form, and an older answer can no longer overwrite a newer one; reads are shared for a few seconds, so the Team tab costs far fewer `gh` calls.
+
 ### Changed
 - A new roadmap in `docs/ROADMAP.md` (0.10: keep the promises; 0.11: fewer things to watch; later; not planned); `docs/ROADMAP-v1.md` is archived and the README roadmap points to it.
+- The console acts where it informs: alerts carry Release, Open and Answer buttons; open pull requests have a strip on the Board; the timeline adds the PR being opened, review verdicts and the last commit; dependencies show their title and state.
+- Keyboard and screen readers: the task panel keeps focus inside and returns it to the card, tabs switch with the arrow keys, Space opens a card, errors are announced, and the hint text passes WCAG AA contrast. Release and Pause ask in a dialog instead of a browser prompt; on touch screens the board says to tap a card instead of dragging.
 
 ## [0.9.1] — 2026-11-21
 

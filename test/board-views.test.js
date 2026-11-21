@@ -35,7 +35,7 @@ test('task drawer: owner, lease left, timeline, dependencies, linked PR', () => 
   assert.equal(v.pr.number, 87);
   assert.equal(v.pr.author, 'claude@pc');
   assert.equal(v.pr.check, 'success');
-  assert.deepEqual(v.timeline.map((x) => x.kind), ['claim', 'heartbeat']);
+  assert.deepEqual(v.timeline.map((x) => x.kind), ['claim', 'pr', 'heartbeat'], 'the PR being opened is in the timeline, in time order');
   assert.equal(v.claim_command, 'crew task claim 214');
   assert.equal(taskView(null), null);
 });

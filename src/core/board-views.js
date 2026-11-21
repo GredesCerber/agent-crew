@@ -29,11 +29,49 @@ export function taskText(body = '') {
 const TIMELINE = {
   claim: (m) => ({ title: `Claimed by ${m.agent ?? m.by ?? '?'}`, tone: 'good', detail: 'lease taken: the task is reserved for this agent' }),
   heartbeat: (m) => ({ title: 'Heartbeat', tone: 'good', detail: `${m.agent ?? m.by ?? 'the agent'} is still working` }),
-  status: (m) => ({ title: `Status → ${m.to ?? m.status ?? '?'}`, tone: m.to === 'blocked' ? 'bad' : 'info', detail: m.agent ? `by ${m.agent}` : '' }),
+  // crew task status writes state=; to= is kept for older markers
+  status: (m) => { const to = m.state ?? m.to ?? '?'; return { title: `Status → ${to}`, tone: to === 'blocked' ? 'bad' : 'info', detail: m.agent ? `by ${m.agent}` : '' }; },
   release: (m) => ({ title: 'Returned to the queue', tone: 'warn', detail: `lease released by ${m.agent ?? m.by ?? '?'}` }),
   answer: (m) => ({ title: 'Answer', tone: 'info', detail: m.agent ? `from ${m.agent}` : '' }),
   'idea-accepted': (m) => ({ title: 'Accepted from an idea', tone: 'good', detail: m.by ? `by @${m.by}` : '' }),
 };
+
+const at = (m) => m.createdAt ?? m.at ?? null;
+/**
+ * What happened to a task, oldest first: crew markers on the issue, the linked PR being opened and its review
+ * verdicts, the last commit on the task branch. Heartbeats in a row collapse into one line, so a long session
+ * does not push the claim out of the list.
+ */
+export function taskTimeline(issue, pr = null, lastCommitAt = null, max = 20) {
+  const events = parseMarkers(issue.comments ?? [])
+    .filter((m) => TIMELINE[m.kind])
+    .map((m) => ({ kind: m.kind, at: at(m), ...TIMELINE[m.kind](m) }));
+  if (pr) {
+    events.push({ kind: 'pr', at: pr.createdAt ?? null, title: `PR #${pr.number} opened`, tone: 'info', detail: authorAgent(pr.body) ? `by ${authorAgent(pr.body)}` : pr.title });
+    for (const m of parseMarkers(pr.comments ?? [])) {
+      if (m.kind !== 'review') continue;
+      const okv = m.verdict === 'approve';
+      events.push({ kind: 'review', at: at(m), title: okv ? 'Review: approved' : `Review: ${m.verdict ?? 'changes requested'}`, tone: okv ? 'good' : 'bad', detail: m.agent ? `by ${m.agent}` : '' });
+    }
+  }
+  if (lastCommitAt) events.push({ kind: 'commit', at: lastCommitAt, title: 'Last commit on the task branch', tone: 'info', detail: '' });
+  const sorted = events.map((x, i) => ({ x, i })).sort((a, b) => (ms(a.x.at) ?? 0) - (ms(b.x.at) ?? 0) || a.i - b.i).map((y) => y.x);
+  const out = [];
+  for (const ev of sorted) {
+    const last = out[out.length - 1];
+    if (ev.kind === 'heartbeat' && last?.kind === 'heartbeat') {
+      last.count = (last.count ?? 1) + 1;
+      last.at = ev.at;
+      last.title = `Heartbeat ×${last.count}`;
+      last.detail = `${ev.detail}; the time of the last one is shown`;
+    } else out.push({ ...ev });
+  }
+  // keep the first claim even when the list is cut: who took the task is the most useful line
+  if (out.length <= max) return out;
+  const firstClaim = out.findIndex((e) => e.kind === 'claim');
+  const tail = out.slice(-max);
+  return firstClaim >= 0 && !tail.includes(out[firstClaim]) ? [out[firstClaim], ...tail.slice(1)] : tail;
+}
 
 /**
  * The task drawer. issue: gh issue view (body, comments, labels, assignees); prs: open PRs (as on the board).
@@ -46,13 +84,10 @@ export function taskView(issue, { prs = [], config = {}, now = Date.now(), lastC
   const leaseMinutes = config.lease_minutes ?? 45;
   const lastAt = owner ? [ms(ownerActivityAt(issue.comments ?? [], owner)), ms(lastCommitAt)].filter((x) => x !== null).sort((a, b) => b - a)[0] ?? null : null;
   const left = lastAt === null ? null : Math.round((lastAt + leaseMinutes * 60000 - now) / 60000);
-  const timeline = parseMarkers(issue.comments ?? [])
-    .filter((m) => TIMELINE[m.kind])
-    .map((m) => ({ kind: m.kind, at: m.createdAt ?? m.at ?? null, ...TIMELINE[m.kind](m) }))
-    .slice(-20);
   const after = (parseMarkers([{ body: issue.body ?? '' }], { trustedOnly: false }).find((m) => m.kind === 'after')?.issues ?? '')
     .split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
   const pr = prs.find((p) => linkedIssue(p.body) === issue.number);
+  const timeline = taskTimeline(issue, pr, lastCommitAt);
   const queued = pr ? prQueue([pr], { me: 'board', login: null, reviewers: [], config, now })[0] : null;
   const checks = pr ? prChecks(pr) : null;
   return {
@@ -220,11 +255,15 @@ export function prsView(prs = [], { config = {}, now = Date.now() } = {}) {
 const DAY = 86400000;
 /** Activity: a feed of recent events (GitHub + this machine's crew metrics) and simple team-health series. */
 export function activityView({ closed = [], merged = [], events = [], stale = [], now = Date.now(), days = 7 } = {}) {
-  const start = new Date(now); start.setHours(0, 0, 0, 0);
+  // buckets are local days (the board runs on the captain's machine, as the page does): label them with the local
+  // date, not toISOString, which is UTC and shifts every bar by a day east of Greenwich
   const series = [];
+  const pad = (x) => String(x).padStart(2, '0');
   for (let d = days - 1; d >= 0; d--) {
-    const from = start.getTime() - d * DAY;
-    series.push({ day: new Date(from).toISOString().slice(0, 10), done: closed.filter((i) => { const t = ms(i.closedAt); return t !== null && t >= from && t < from + DAY; }).length });
+    const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - d);
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    const from = start.getTime(); const to = end.getTime();
+    series.push({ day: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`, done: closed.filter((i) => { const t = ms(i.closedAt); return t !== null && t >= from && t < to; }).length });
   }
   const feed = [
     ...closed.map((i) => ({ at: i.closedAt, kind: 'done', title: `#${i.number} ${i.title}`, who: (i.assignees ?? [])[0]?.login ?? null })),

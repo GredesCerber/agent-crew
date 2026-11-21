@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { ok, fail } from '../core/output.js';
 import { gh, ghJson } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
-import { listIssues, PAUSE_LABEL } from '../core/issues.js';
+import { listIssues, PAUSE_LABEL, labelValue } from '../core/issues.js';
 import { boardModel, actionArgs, renderPage } from '../core/board.js';
 import { taskView, teamView, inboxView, discoveryView, prsView, activityView, pauseView } from '../core/board-views.js';
 import { readEvents, metricsRoot } from '../core/metrics.js';
@@ -54,8 +54,36 @@ const json = (res, code, body) => {
 };
 const firstLine = (r) => (r.stderr || r.stdout || 'gh failed').split('\n')[0];
 
+// Reads that several views make in one refresh (the board plus the open tab) share one gh call for a few seconds.
+const READS = ['issues', 'prs', 'questions', 'team', 'claimComments', 'ideas', 'issue', 'lastCommitAt', 'closed', 'merged', 'events', 'research', 'discoveryStatus', 'doc', 'acting'];
+/** source with short-lived memoized reads; any write (edit, captain) clears it so the next read is fresh. */
+export function cachedSource(source, { ttlMs = 5000, now = () => Date.now() } = {}) {
+  const memo = new Map();
+  const out = { ...source, clear: () => memo.clear() };
+  for (const name of READS) {
+    if (typeof source[name] !== 'function') continue;
+    out[name] = (...args) => {
+      const key = name + JSON.stringify(args);
+      const hit = memo.get(key);
+      if (hit && now() - hit.at < ttlMs) return hit.value;
+      const value = source[name](...args);
+      memo.set(key, { at: now(), value });
+      return value;
+    };
+  }
+  for (const name of ['edit', 'captain']) {
+    if (typeof source[name] !== 'function') continue;
+    out[name] = (...args) => { try { return source[name](...args); } finally { memo.clear(); } };
+  }
+  return out;
+}
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const short = (e) => String(e?.message ?? e).split('\n')[0].slice(0, 300);
+
 /** The HTTP handler (exported for tests: no network, any source). */
-export function boardHandler({ source, token, repo, config = {}, allowedHosts, now = () => Date.now() }) {
+export function boardHandler({ source: rawSource, token, repo, config = {}, allowedHosts, now = () => Date.now(), cacheMs = 5000 }) {
+  const source = cacheMs > 0 ? cachedSource(rawSource, { ttlMs: cacheMs }) : rawSource;
   let members = null;
   // cache only a real answer: a failed collaborators call would otherwise leave the assign list empty for good
   const getMembers = () => {
@@ -64,8 +92,9 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts, n
     if (got?.length) members = got;
     return got ?? [];
   };
-  let login;
-  const getLogin = () => (login !== undefined ? login : (login = source.login?.() ?? null));
+  // cache only a real login: one failed gh call must not leave the board without a captain for good
+  let login = null;
+  const getLogin = () => login ?? (login = source.login?.() || null);
   const board = () => {
     const issues = source.issues();
     const questions = source.questions?.() ?? [];
@@ -80,7 +109,13 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts, n
       if (!Number.isInteger(n) || n <= 0) return { http: 400, error: 'bad issue number' };
       const issue = source.issue?.(n);
       if (!issue) return { http: 404, error: `#${n} not found` };
-      return taskView(issue, { prs: source.prs(), config, now: now(), lastCommitAt: source.lastCommitAt?.(n) ?? null });
+      const t = taskView(issue, { prs: source.prs(), config, now: now(), lastCommitAt: source.lastCommitAt?.(n) ?? null });
+      // dependencies with their title and state, so the drawer says what the task waits for
+      t.deps = t.after.map((a) => {
+        const d = source.issue?.(a);
+        return d ? { number: a, title: d.title, state: d.state ?? 'OPEN', status: labelValue(d, 'status') } : { number: a, title: null, state: null, status: null };
+      });
+      return t;
     },
     '/api/team': () => {
       const b = board();
@@ -135,7 +170,7 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts, n
         const out = views[url.pathname](url);
         return out?.http ? json(res, out.http, { error: out.error }) : json(res, 200, out);
       } catch (e) {
-        return json(res, 500, { error: `crew board could not load this view: ${String(e?.message ?? e).split('\n')[0]}` });
+        return json(res, 502, { error: `crew board could not load this view: ${short(e)}` });
       }
     }
     if (req.method === 'POST' && url.pathname === '/api/action') {
@@ -147,22 +182,32 @@ export function boardHandler({ source, token, repo, config = {}, allowedHosts, n
       }
       let body;
       try { body = JSON.parse(raw); } catch { return json(res, 400, { error: 'bad json' }); }
-      if (Object.hasOwn(teamActions, String(body.op))) {
-        const r = teamActions[body.op](body);
-        return r.error ? json(res, 400, { error: r.error }) : json(res, 200, r);
+      if (!isPlainObject(body)) return json(res, 400, { error: 'the body must be a JSON object' });
+      // a gh failure (network, auth, rate limit) answers 502; it must never take the whole board down
+      try {
+        return act(res, body);
+      } catch (e) {
+        return json(res, 502, { error: `gh failed: ${short(e)}` });
       }
-      const current = source.issues().find((i) => i.number === Number(body.issue))
-        ?? (body.op === 'answer' ? (source.questions?.() ?? []).find((i) => i.number === Number(body.issue)) : undefined);
-      const needsLogin = ['idea', 'release', 'answer'].includes(body.op);
-      const a = actionArgs(body, current, { members: getMembers(), login: needsLogin ? getLogin() : null, acting: body.op === 'idea' ? source.acting?.(config) ?? null : null, config });
-      if (a.error) return json(res, 400, { error: a.error });
-      if (a.noop) return json(res, 200, { ok: true, noop: true });
-      const r = source.edit(a.args);
-      if (r.code === 0 && a.comment) source.edit(['issue', 'comment', String(current.number), '--body', a.comment]);
-      return r.code === 0 ? json(res, 200, { ok: true }) : json(res, 502, { error: firstLine(r) });
     }
     return json(res, 404, { error: 'not found' });
   };
+  function act(res, body) {
+    source.clear?.(); // decide on fresh data: the cache is for reads, not for the state a change is checked against
+    if (Object.hasOwn(teamActions, String(body.op))) {
+      const r = teamActions[body.op](body);
+      return r.error ? json(res, 400, { error: r.error }) : json(res, 200, r);
+    }
+    const current = source.issues().find((i) => i.number === Number(body.issue))
+      ?? (body.op === 'answer' ? (source.questions?.() ?? []).find((i) => i.number === Number(body.issue)) : undefined);
+    const needsLogin = ['idea', 'release', 'answer'].includes(body.op);
+    const a = actionArgs(body, current, { members: getMembers(), login: needsLogin ? getLogin() : null, acting: body.op === 'idea' ? source.acting?.(config) ?? null : null, config });
+    if (a.error) return json(res, 400, { error: a.error });
+    if (a.noop) return json(res, 200, { ok: true, noop: true });
+    const r = source.edit(a.args);
+    if (r.code === 0 && a.comment) source.edit(['issue', 'comment', String(current.number), '--body', a.comment]);
+    return r.code === 0 ? json(res, 200, { ok: true }) : json(res, 502, { error: firstLine(r) });
+  }
 }
 
 export default {

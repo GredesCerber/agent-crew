@@ -53,7 +53,11 @@ function e(tag, attrs, ...kids) {
   return n;
 }
 const sel = (label, opts, cur, on) => { const s = e('select', { 'aria-label': label, on: { change: () => on(s.value) } }); for (const [v, l] of opts) { const o = e('option', { value: v }, l); if (v === cur) o.selected = true; s.append(o); } return s; };
-function toast(text, err) { const t = e('div', { class: 'toast' + (err ? ' err' : '') }, text); $('toasts').append(t); setTimeout(() => t.remove(), err ? 6500 : 2600); }
+function toast(text, err) {
+  const t = e('div', { class: 'toast' + (err ? ' err' : ''), role: err ? 'alert' : 'status' }, text);
+  $('toasts').append(t);
+  setTimeout(() => t.remove(), err ? 6500 : 2600);
+}
 const ago = (m) => (m == null ? '' : m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd');
 const since = (iso) => { const t = Date.parse(iso || ''); return Number.isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 60000)) : null; };
 const hhmm = (iso) => {
@@ -67,10 +71,30 @@ const avatar = (login, size) => e('span', { class: 'av' + (size ? ' ' + size : '
 const gh = (kind, n) => 'https://github.com/' + REPO + '/' + kind + '/' + n;
 const link = (kind, n, text, cls) => e('a', { class: cls, href: gh(kind, n), target: '_blank', rel: 'noopener' }, text);
 const badge = (tone, ic, text) => e('span', { class: 'badge b-' + tone }, ic ? icon(ic) : '', text);
+/** A check or crew-guard state as a badge: success, failure, anything else is still pending. */
+const stateBadge = (state, label) => badge(state === 'success' ? 'good' : state === 'failure' ? 'bad' : 'warn', state === 'success' ? 'ok' : state === 'failure' ? 'x' : 'clock', label);
 const empty = (ic, title, text) => e('div', { class: 'empty' }, icon(ic), e('b', {}, title), text ? e('span', {}, text) : '');
 function copyBox(text, label) {
   return e('button', { class: 'copy', title: 'Copy to the clipboard', on: { click: async () => { try { await navigator.clipboard.writeText(text); toast('Copied: ' + text); } catch { toast('Copy failed: select the text by hand', true); } } } }, icon('copy'), e('span', { class: 'mono' }, label || text));
 }
+/**
+ * Ask for a confirmation with an optional note (instead of window.prompt). Resolves to the note ('' when empty)
+ * or null when cancelled. <dialog> keeps the focus inside and gives it back when it closes.
+ */
+function ask({ title, text, ok, danger, placeholder }) {
+  return new Promise((resolve) => {
+    const note = e('textarea', { placeholder: placeholder || 'Optional note for the team', 'aria-label': 'Note' });
+    const d = e('dialog', { class: 'ask', 'aria-labelledby': 'ask-title' });
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    d.append(e('h2', { id: 'ask-title' }, title), e('p', { class: 'hint' }, text), note,
+      e('div', { class: 'row', style: 'justify-content:flex-end;margin-top:12px' },
+        e('button', { class: 'btn', on: { click: () => done(null) } }, 'Cancel'),
+        e('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), on: { click: () => done(note.value.trim()) } }, ok)));
+    d.addEventListener('cancel', (ev) => { ev.preventDefault(); done(null); });
+    document.body.append(d); d.showModal(); note.focus();
+  });
+}
+const releaseTask = async (n) => { const why = await ask({ title: 'Release the lease on #' + n + '?', text: 'The agent loses the task: it goes back to Ready and anyone may take it. Do this when the agent is gone or went the wrong way.', ok: 'Release lease', danger: true }); if (why !== null) act({ issue: n, op: 'release', reason: why }); };
 function panel(title, ...kids) { return e('section', { class: 'panel' }, e('h2', {}, title), ...kids); }
 function panelH(title, extra, ...kids) { return e('section', { class: 'panel' }, e('div', { class: 'panel-h' }, e('h2', {}, title), extra || ''), ...kids); }
 function pageH(title, text) { return e('div', { class: 'page-h' }, e('h1', {}, title), e('p', {}, text)); }
@@ -82,8 +106,11 @@ const TABS = [
 ];
 let tab = (location.hash || '#board').slice(1); if (!TABS.some((t) => t[0] === tab)) tab = 'board';
 let model = null; let view = null; let drag = null; let busy = 0; let openTask = null; let prFilter = 'all';
+let boardError = null; let viewError = null; let seq = 0;
+const pick = { to: null, hours: '4' }; // the handover form, kept across refreshes
 async function api(path) {
-  const r = await fetch(path, { headers: { 'x-crew-token': TOKEN } });
+  let r;
+  try { r = await fetch(path, { headers: { 'x-crew-token': TOKEN } }); } catch { throw new Error('crew board is not reachable: is it still running in the terminal?'); }
   const j = await r.json().catch(() => ({ error: 'bad answer from crew board' }));
   if (j && j.error) throw new Error(j.error);
   return j;
@@ -111,16 +138,26 @@ function renderChrome() {
   const cap = d.captain;
   $('captain').replaceChildren(cap ? e('span', { class: 'pill' + (cap.acting ? ' acting' : ''), title: cap.acting ? 'Handed over until ' + (cap.acting.until || '?') : 'Plans, decides on ideas, gets questions for a human' }, icon('crown'), cap.acting ? 'acting @' + cap.acting.login : 'captain @' + cap.captain) : '');
   const counts = { inbox: (c.ideas || 0) + (m.human_questions || 0), prs: c.prs || 0 };
-  const nav = $('tabs'); nav.replaceChildren();
+  const nav = $('tabs'); const hadFocus = nav.contains(document.activeElement); nav.replaceChildren();
   for (const [id, label, ic] of TABS) {
     const n = counts[id];
-    nav.append(e('button', { class: 'tab', role: 'tab', 'aria-selected': String(tab === id), on: { click: () => go(id) } }, icon(ic), label, n ? e('span', { class: 'count' + (id === 'inbox' ? ' hot' : '') }, String(n)) : ''));
+    nav.append(e('button', { class: 'tab', role: 'tab', id: 'tab-' + id, 'aria-controls': 'main', tabindex: tab === id ? '0' : '-1', 'aria-selected': String(tab === id), on: { click: () => go(id) } }, icon(ic), label, n ? e('span', { class: 'count' + (id === 'inbox' ? ' hot' : '') }, String(n)) : ''));
   }
+  $('main').setAttribute('aria-labelledby', 'tab-' + tab);
+  if (hadFocus) $('tab-' + tab).focus(); // the tabs were rebuilt: keep the keyboard where it was
   const paused = m.paused || [];
   $('pausebar').replaceChildren(...(paused.length ? [e('div', { class: 'pausebar' }, icon('pause'), 'The team is paused: agents do not take or claim tasks (' + paused.map((p) => '#' + p.number).join(', ') + ').', e('span', { class: 'grow' }), e('button', { class: 'btn', on: { click: () => act({ op: 'resume' }) } }, icon('play'), 'Resume'))] : []));
   $('pause').hidden = paused.length > 0;
 }
-function go(id) { tab = id; history.replaceState(null, '', '#' + id); view = null; renderChrome(); renderTab(); load(true); }
+function go(id) { tab = id; history.replaceState(null, '', '#' + id); view = null; viewError = null; if (model) renderChrome(); renderTab(); load(true); }
+$('tabs').addEventListener('keydown', (ev) => {
+  const i = TABS.findIndex((t) => t[0] === tab);
+  const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 }[ev.key];
+  if (to === undefined) return;
+  ev.preventDefault();
+  go(TABS[(to + TABS.length) % TABS.length][0]);
+  $('tab-' + tab).focus();
+});
 
 /* ---------- Board ---------- */
 const matches = (t, q) => !q || ('#' + t.number + ' ' + t.title + ' ' + (t.area || '') + ' ' + t.assignees.map((a) => '@' + a).join(' ')).toLowerCase().includes(q.toLowerCase());
@@ -137,7 +174,7 @@ function card(t) {
     on: {
       dragstart: (ev) => { drag = t; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', '#' + t.number + ' ' + t.title); requestAnimationFrame(() => c.classList.add('ghost')); document.body.classList.add('dragging-on'); marks(); },
       dragend: () => { c.classList.remove('ghost'); drag = null; document.body.classList.remove('dragging-on'); marks(); },
-      keydown: (ev) => { if (ev.key === 'Enter') showTask(t.number); },
+      keydown: (ev) => { if (ev.target === c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); showTask(t.number); } },
     },
   });
   const who = t.assignees[0];
@@ -158,6 +195,33 @@ const KPI = [
   ['ideas', 'Ideas to decide', 'accept or reject', 'warn', 'inbox'], ['idle', 'Idle members', 'nothing to work on', 'warn', 'team'],
 ];
 const ALERT_IC = { human: ['alert', 'red'], stale: ['clock', 'amber'], questions: ['chat', 'blue'], idle: ['user', 'amber'], newcomers: ['user', 'violet'], research: ['clock', 'amber'] };
+const taskByN = (n) => Object.values(model.columns).flat().find((t) => t.number === n) || null;
+/** One alert line with the action that resolves it: open the task, release a stale lease, answer a question. */
+function alertLine(key, line) {
+  const n = Number((/^#(\d+)/.exec(line) || [])[1]);
+  const t = n ? taskByN(n) : null;
+  const acts = [];
+  if (t) {
+    if (key === 'stale' || (key === 'human' && t.status === 'blocked')) acts.push(e('button', { class: 'btn small danger', on: { click: () => releaseTask(n) } }, 'Release'));
+    acts.push(e('button', { class: 'btn small', on: { click: () => showTask(n) } }, 'Open'));
+  } else if (n && key === 'human') acts.push(e('button', { class: 'btn small primary', on: { click: () => go('inbox') } }, 'Answer'));
+  else if (n) acts.push(link('issues', n, 'Open', 'btn small'));
+  else if (key === 'idle' || key === 'newcomers') acts.push(e('button', { class: 'btn small', on: { click: () => go('team') } }, 'Team'));
+  return e('li', { class: 'row' }, e('span', { class: 'grow' }, line), ...acts);
+}
+/** What waits in pull requests, on the board itself: the next step for each, one click to the PR. */
+const PR_KIND = { merge: ['accent', 'merge', 'merge'], review: ['warn', 'eye', 'review'], fix: ['bad', 'wrench', 'fix'], checks: ['info', 'clock', 'checks'] };
+function prStrip() {
+  const prs = model.prs || [];
+  if (!prs.length) return '';
+  const row = e('div', { class: 'prstrip' });
+  for (const p of prs.slice(0, 8)) {
+    const [tone, ic, word] = PR_KIND[p.kind] || ['muted', 'pr', p.kind];
+    row.append(e('a', { class: 'prchip', href: gh('pull', p.number), target: '_blank', rel: 'noopener', title: p.kind === 'fix' && p.reason ? 'Author fixes: ' + p.reason : p.kind === 'review' ? 'Needs review ' + p.have + '/' + p.need : '' }, badge(tone, ic, word), e('span', { class: 'mono muted' }, '#' + p.number), e('span', { class: 'ttl' }, p.title)));
+  }
+  if (prs.length > 8) row.append(e('button', { class: 'btn small', on: { click: () => go('prs') } }, '+' + (prs.length - 8) + ' more'));
+  return panelH('Pull requests waiting', e('button', { class: 'btn small', on: { click: () => go('prs') } }, 'All PRs'), row);
+}
 function renderBoard(root) {
   const m = model; const d = m.digest; const c = d.counts;
   const kp = e('div', { class: 'kpis' });
@@ -173,14 +237,16 @@ function renderBoard(root) {
   }
   for (const s of d.sections.filter((x) => !['prs', 'ideas'].includes(x.key) && x.lines.length)) {
     const [ic, tone] = ALERT_IC[s.key] || ['alert', 'amber'];
-    const ul = e('ul'); for (const l of s.lines.slice(0, 5)) ul.append(e('li', {}, l));
+    const ul = e('ul'); for (const l of s.lines.slice(0, 5)) ul.append(alertLine(s.key, l));
     if (s.lines.length > 5) ul.append(e('li', { class: 'faint' }, '+' + (s.lines.length - 5) + ' more'));
     al.append(e('div', { class: 'alert' }, e('span', { class: 'ic ' + tone }, icon(ic)), e('div', { class: 'body' }, e('h3', {}, s.title + ' · ' + s.lines.length), ul)));
   }
   if (!al.children.length) al.append(e('div', { class: 'alert clear' }, e('span', { class: 'ic green' }, icon('ok')), 'All clear: nobody waits for a human, no stale leases, everyone has work.'));
   root.append(panel('Captain panel', kp, al));
+  const strip = prStrip(); if (strip) root.append(strip);
 
-  const team = e('section', { class: 'panel team', 'aria-label': 'Team: drop a card on a person to assign it' }, e('h2', {}, 'Team'), e('span', { class: 'sep', 'aria-hidden': 'true' }), e('span', { class: 'hint' }, 'Drag a card onto a person to assign it'));
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const team = e('section', { class: 'panel team', 'aria-label': 'Team: drop a card on a person to assign it' }, e('h2', {}, 'Team'), e('span', { class: 'sep', 'aria-hidden': 'true' }), e('span', { class: 'hint' }, touch ? 'Tap a card, then assign it or change its status at the bottom of the panel' : 'Drag a card onto a person to assign it, or onto a column to change its status'));
   for (const p of m.members) { const el = e('span', { class: 'person', title: 'Drop a card here to give it to @' + p }, avatar(p), p); zone(el, () => !drag.assignees.includes(p), (t) => act({ issue: t.number, op: 'assign', value: p })); team.append(el); }
   if (!m.members.length) team.append(e('span', { class: 'hint' }, '(gh shows no members)'));
   const un = e('span', { class: 'person unassign', title: 'Drop a card here to unassign it' }, '✕ Unassign'); zone(un, () => drag.assignees.length > 0, (t) => act({ issue: t.number, op: 'assign', value: '' })); team.append(un);
@@ -201,7 +267,9 @@ function renderBoard(root) {
 
 /* ---------- Task drawer ---------- */
 const TONE = { good: '', bad: 'bad', warn: 'warn', info: 'info' };
+let returnFocus = null;
 async function showTask(n, quiet) {
+  if (!quiet && !openTask) returnFocus = document.activeElement;
   openTask = n;
   if (!quiet) { $('d-body').replaceChildren(e('div', { class: 'hint' }, 'Loading #' + n + '…')); $('d-title').textContent = '#' + n; $('d-foot').replaceChildren(); }
   $('drawer').classList.add('on'); $('scrim').classList.add('on'); $('drawer').setAttribute('aria-hidden', 'false');
@@ -229,7 +297,14 @@ async function showTask(n, quiet) {
   left.append(own);
   if (t.after.length) {
     const dep = e('div', { class: 'sect' }, e('h3', {}, 'Dependencies'));
-    for (const a of t.after) dep.append(e('div', { class: 'row' }, e('span', { class: 'ic amber' }, icon('clock')), e('div', { class: 'grow' }, 'Waits for ', e('button', { class: 'btn small', on: { click: () => showTask(a) } }, '#' + a), e('div', { class: 'hint' }, 'It moves to Ready by itself when #' + a + ' is closed.'))));
+    for (const d of t.deps || t.after.map((n) => ({ number: n }))) {
+      const closed = d.state === 'CLOSED';
+      dep.append(e('div', { class: 'row' }, e('span', { class: 'ic ' + (closed ? 'green' : 'amber') }, icon(closed ? 'ok' : 'clock')),
+        e('div', { class: 'grow' }, e('button', { class: 'btn small', on: { click: () => showTask(d.number) } }, '#' + d.number), ' ', d.title || ''),
+        closed ? badge('good', '', 'done') : d.status ? badge(d.status === 'blocked' ? 'bad' : 'muted', '', LABEL[d.status] || d.status) : ''));
+    }
+    const open = (t.deps || []).filter((d) => d.state !== 'CLOSED').length;
+    dep.append(e('div', { class: 'hint', style: 'margin-top:6px' }, open || !t.deps ? 'It moves to Ready by itself when all of these are closed.' : 'All done: the sweep moves it to Ready.'));
     left.append(dep);
   }
   left.append(e('div', { class: 'sect' }, e('details', {}, e('summary', {}, 'Full issue text'), e('pre', { class: 'body' }, t.body || '(empty)'))));
@@ -242,8 +317,8 @@ async function showTask(n, quiet) {
     const p = t.pr;
     prs.append(e('div', { class: 'row' }, e('span', { class: 'mono muted' }, '#' + p.number), link('pull', p.number, p.title, 'grow'), e('a', { class: 'btn icon', href: gh('pull', p.number), target: '_blank', rel: 'noopener', 'aria-label': 'Open PR on GitHub' }, icon('ext'))));
     prs.append(e('div', { class: 'chips' },
-      badge(p.check === 'success' ? 'good' : p.check === 'failure' ? 'bad' : 'warn', p.check === 'success' ? 'ok' : p.check === 'failure' ? 'x' : 'clock', 'checks: ' + (p.check || 'none yet')),
-      badge(p.guard === 'success' ? 'good' : p.guard === 'failure' ? 'bad' : 'warn', p.guard === 'success' ? 'ok' : p.guard === 'failure' ? 'x' : 'clock', 'crew-guard: ' + (p.guard || 'waiting')),
+      stateBadge(p.check, 'checks: ' + (p.check || 'none yet')),
+      stateBadge(p.guard, 'crew-guard: ' + (p.guard || 'waiting')),
       p.kind === 'review' ? badge('warn', 'eye', 'review ' + p.have + '/' + p.need) : p.kind === 'merge' ? badge('accent', 'merge', 'ready to merge') : p.kind === 'fix' ? badge('bad', 'wrench', 'author fixes') : ''));
     if (p.guard_text) prs.append(e('div', { class: 'hint' }, p.guard_text));
     if (p.author) prs.append(e('div', { class: 'hint' }, 'Written by ', e('span', { class: 'mono' }, p.author)));
@@ -257,10 +332,24 @@ async function showTask(n, quiet) {
   if (ST.includes(t.status)) foot.append(e('label', { class: 'f' }, 'Status', sel('Status', ST.map((x) => [x, LABEL[x]]), t.status, (v) => act({ issue: t.number, op: 'status', value: v }))));
   foot.append(e('label', { class: 'f' }, 'Priority', sel('Priority', PR.map((x) => [x, x]), t.priority, (v) => act({ issue: t.number, op: 'priority', value: v }))));
   foot.append(e('span', { class: 'grow' }));
-  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => { const why = prompt('Release the lease on #' + t.number + '? The agent loses the task and it goes back to Ready.\nOptional note for the team:', ''); if (why !== null) act({ issue: t.number, op: 'release', reason: why }); } } }, icon('lock'), 'Release lease'));
+  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => releaseTask(t.number) } }, icon('lock'), 'Release lease'));
   foot.append(e('a', { class: 'btn', href: gh('issues', t.number), target: '_blank', rel: 'noopener' }, icon('ext'), 'Open on GitHub'));
 }
-function closeTask() { openTask = null; $('drawer').classList.remove('on'); $('scrim').classList.remove('on'); $('drawer').setAttribute('aria-hidden', 'true'); }
+function closeTask() {
+  openTask = null; $('drawer').classList.remove('on'); $('scrim').classList.remove('on'); $('drawer').setAttribute('aria-hidden', 'true');
+  const back = returnFocus; returnFocus = null;
+  // the card may have been re-rendered while the drawer was open: focus the same task's new card
+  const n = back && back.closest && back.closest('.card') ? back.closest('.card').dataset.n : null;
+  const target = back && document.contains(back) ? back : n ? document.querySelector('.card[data-n="' + n + '"]') : null;
+  if (target) target.focus();
+}
+$('drawer').addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Tab' || !openTask) return;
+  const f = [...$('drawer').querySelectorAll('a[href],button:not([disabled]),select,textarea,input,summary,[tabindex="0"]')].filter((x) => x.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0]; const last = f[f.length - 1];
+  if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); } else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+});
 
 /* ---------- Team & roles ---------- */
 function renderTeam(root, v) {
@@ -269,8 +358,8 @@ function renderTeam(root, v) {
   const capCard = e('section', { class: 'panel captain' });
   capCard.append(avatar(v.acting ? v.acting.login : v.captain || '?', 'xl'), e('div', { class: 'meta' }, e('h2', {}, v.acting ? 'Acting captain @' + v.acting.login : v.captain ? 'Captain @' + v.captain : 'No captain set'), e('div', { class: 'hint' }, v.acting ? 'Until ' + new Date(v.acting.until).toLocaleString() + ' · handed over by @' + v.captain : 'Plans the work (kickoff), decides on ideas, answers questions only a human can.')));
   capCard.append(e('span', { class: 'vsep' }));
-  const modes = e('div', { class: 'seg', role: 'group', 'aria-label': 'Handover rule (read only here)' });
-  for (const md of ['off', 'deputies', 'team']) modes.append(e('span', { class: 'btn small', 'aria-pressed': String(pol.mode === md) }, md[0].toUpperCase() + md.slice(1)));
+  const modes = e('div', { class: 'modes', title: 'Change it with crew captain policy (the repo owner)' });
+  for (const md of ['off', 'deputies', 'team']) modes.append(e('span', { class: 'mode' + (pol.mode === md ? ' on' : ''), 'aria-hidden': pol.mode === md ? null : 'true' }, md[0].toUpperCase() + md.slice(1)));
   capCard.append(e('div', {}, e('div', { class: 'hint', style: 'margin-bottom:6px' }, 'Handover rule'), modes, e('div', { class: 'hint', style: 'margin-top:6px' }, pol.mode === 'deputies' ? 'Deputies: ' + (pol.deputies.map((d) => '@' + d).join(', ') || 'none') : pol.mode === 'team' ? 'Anyone with write access' : 'Nobody else can act as captain'), pol.fallback_hours ? e('div', { class: 'hint' }, 'Auto fallback after ' + pol.fallback_hours + ' h of silence') : ''));
   capCard.append(e('span', { class: 'vsep' }));
   const box = e('div', { style: 'display:grid;gap:8px;min-width:240px' });
@@ -281,8 +370,9 @@ function renderTeam(root, v) {
     const who = (pol.mode === 'deputies' ? pol.deputies : v.people.map((p) => p.login)).filter((l) => l.toLowerCase() !== String(v.captain).toLowerCase());
     if (!who.length) box.append(e('div', { class: 'hint' }, 'No deputies listed yet.'));
     else {
-      const to = sel('Hand over to', who.map((l) => [l, '@' + l]), who[0], () => {});
-      const hours = sel('For how long', [['2', '2 hours'], ['4', '4 hours'], ['8', '8 hours'], ['24', '1 day'], ['72', '3 days']], '4', () => {});
+      const keepTo = who.includes(pick.to) ? pick.to : who[0];
+      const to = sel('Hand over to', who.map((l) => [l, '@' + l]), keepTo, (v) => { pick.to = v; });
+      const hours = sel('For how long', [['2', '2 hours'], ['4', '4 hours'], ['8', '8 hours'], ['24', '1 day'], ['72', '3 days']], pick.hours, (v) => { pick.hours = v; });
       box.append(e('div', { class: 'row' }, to, hours), e('button', { class: 'btn primary', on: { click: () => act({ op: 'handoff', value: to.value, hours: Number(hours.value) }) } }, icon('swap'), 'Hand over captain'), e('div', { class: 'hint' }, 'They can plan and decide until the time runs out or you take it back.'));
     }
   }
@@ -380,8 +470,8 @@ function renderPrs(root, list) {
       e('td', {}, e('span', { class: 'mono muted' }, '#' + p.number), e('div', {}, link('pull', p.number, p.title)), p.issue ? e('button', { class: 'btn small', style: 'margin-top:4px', on: { click: () => showTask(p.issue) } }, 'task #' + p.issue) : ''),
       e('td', {}, p.author ? e('span', { class: 'chip' }, icon('cpu'), p.author) : e('span', { class: 'faint' }, 'not via crew')),
       e('td', {}, rv.length ? rv.map((r) => e('div', {}, badge(r.verdict === 'approve' ? 'good' : 'bad', r.verdict === 'approve' ? 'ok' : 'x', r.agent))) : e('span', { class: 'faint' }, 'no review on this commit')),
-      e('td', {}, badge(p.check === 'success' ? 'good' : p.check === 'failure' ? 'bad' : 'warn', p.check === 'success' ? 'ok' : p.check === 'failure' ? 'x' : 'clock', p.check || 'pending')),
-      e('td', { title: p.guard_text || '' }, badge(p.guard === 'success' ? 'good' : p.guard === 'failure' ? 'bad' : 'warn', p.guard === 'success' ? 'ok' : p.guard === 'failure' ? 'x' : 'clock', p.guard === 'failure' && p.guard_text ? p.guard_text.slice(0, 48) : p.guard || 'pending')),
+      e('td', {}, stateBadge(p.check, p.check || 'pending')),
+      e('td', { title: p.guard_text || '' }, stateBadge(p.guard, p.guard === 'failure' && p.guard_text ? p.guard_text.slice(0, 48) : p.guard || 'pending')),
       e('td', {}, e('span', { class: 'chip risk-' + p.risk }, p.risk)),
       e('td', { class: 'muted' }, ago(p.age_min)),
       e('td', {}, p.conflict ? badge('bad', 'alert', 'conflict') : e('span', { class: 'faint' }, 'none')),
@@ -418,25 +508,34 @@ function renderActivity(root, v) {
 /* ---------- loading ---------- */
 const RENDER = { team: renderTeam, inbox: renderInbox, discovery: renderDiscovery, prs: renderPrs, activity: renderActivity };
 const PATH = { team: '/api/team', inbox: '/api/inbox', discovery: '/api/discovery', prs: '/api/prs', activity: '/api/activity' };
+const failed = (what, msg) => e('section', { class: 'panel' }, e('div', { class: 'empty' }, icon('alert'), e('b', {}, 'Could not load ' + what), e('span', {}, msg), e('button', { class: 'btn', on: { click: () => load(true) } }, 'Try again')));
+const TAB_NAME = Object.fromEntries(TABS.map((t) => [t[0], t[1]]));
 function renderTab() {
-  if (!model) return;
   const root = $('main'); const keep = root.scrollTop; root.replaceChildren();
-  if (tab === 'board') renderBoard(root);
-  else if (view) RENDER[tab](root, view);
-  else root.append(e('div', { class: 'hint' }, 'Loading…'));
+  if (tab === 'board' && model) renderBoard(root);
+  else if (tab === 'board') root.append(boardError ? failed('the board', boardError) : e('div', { class: 'hint' }, 'Loading…'));
+  else if (view && model) RENDER[tab](root, view);
+  else root.append(viewError ? failed(TAB_NAME[tab], viewError) : boardError && !model ? failed('the board', boardError) : e('div', { class: 'hint' }, 'Loading…'));
   root.scrollTop = keep;
 }
-const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.id !== 'q')) && !!a.value; };
+// a refresh must not rebuild a form under the person's hands: a focused field or an open select keeps the page
+const busyForm = () => { const a = document.activeElement; return !!a && a.id !== 'q' && (a.tagName === 'SELECT' || (['TEXTAREA', 'INPUT'].includes(a.tagName) && !!a.value)); };
 async function load(force) {
-  if (drag || busy || (!force && typing())) return;
+  if (drag || busy || document.querySelector('dialog[open]') || (!force && busyForm())) return;
+  const my = ++seq; const want = tab;
   document.body.classList.add('loading');
-  try {
-    const want = tab;
-    const [m, v] = await Promise.all([api('/api/board'), want === 'board' ? null : api(PATH[want])]);
-    model = m; if (want === tab) view = v;
-    renderChrome(); renderTab();
-    $('time').textContent = 'updated ' + new Date(m.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch (x) { $('time').textContent = 'offline'; toast(x.message || 'crew board is not reachable', true); } finally { document.body.classList.remove('loading'); }
+  const [m, v] = await Promise.allSettled([api('/api/board'), want === 'board' ? Promise.resolve(null) : api(PATH[want])]);
+  document.body.classList.remove('loading');
+  if (my !== seq) return; // a newer refresh started: its answer wins
+  const why = (r) => (r.reason && r.reason.message) || 'crew board is not reachable: is it still running?';
+  if (m.status === 'fulfilled') { model = m.value; boardError = null; } else boardError = why(m);
+  if (want === tab && want !== 'board') { if (v.status === 'fulfilled') { view = v.value; viewError = null; } else viewError = why(v); }
+  if (model) renderChrome();
+  renderTab();
+  const err = boardError || (want !== 'board' && viewError);
+  $('time').textContent = err ? 'could not refresh' : 'updated ' + new Date(model.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('time').classList.toggle('bad', !!err);
+  if (err && force) toast(err, true);
 }
 
 /* ---------- wiring ---------- */
@@ -445,8 +544,11 @@ try { theme(localStorage.getItem('crew-board-theme')); } catch { theme(); }
 for (const t of ['light', 'dark']) $(t).onclick = () => { theme(t); try { localStorage.setItem('crew-board-theme', t); } catch { /* private mode */ } };
 $('q').addEventListener('input', () => { if (tab !== 'board') go('board'); else renderTab(); });
 $('refresh').onclick = () => load(true);
-$('pause').onclick = () => { const why = prompt('Pause the whole team? Agents stop taking and claiming tasks until you resume.\nReason (the team sees it):', ''); if (why !== null) act({ op: 'pause', reason: why }); };
+$('pause').onclick = async () => {
+  const why = await ask({ title: 'Pause the whole team?', text: 'Agents stop taking and claiming tasks until you press Resume. Work already claimed is not interrupted.', ok: 'Pause team', danger: true, placeholder: 'Reason (the team sees it)' });
+  if (why !== null) act({ op: 'pause', reason: why });
+};
 $('d-close').onclick = closeTask; $('scrim').onclick = closeTask;
-document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && openTask) closeTask(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && openTask && !document.querySelector('dialog[open]')) closeTask(); });
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h !== tab && TABS.some((t) => t[0] === h)) go(h); });
 load(true); setInterval(() => load(false), 30000);

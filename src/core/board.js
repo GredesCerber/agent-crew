@@ -86,7 +86,9 @@ export function actionArgs({ op, value, reason }, current, { members = [], login
     const args = ['issue', 'edit', n, '--add-label', `status:${to}`];
     for (const f of from) if (f !== to) args.push('--remove-label', `status:${f}`);
     // Back to the queue: also end any old claim (e.g. an agent that set blocked while holding it), as crew task release
-    // does; otherwise agents get claim_conflict until that lease ages out.
+    // does; otherwise agents get claim_conflict until that lease ages out. From blocked the agent held it: free the
+    // assignees too, as Release lease does, or the card keeps an owner who no longer works on it.
+    if (to === 'ready' && from.includes('blocked')) for (const a of current.assignees ?? []) args.push('--remove-assignee', a.login);
     if (to === 'ready') return { args, comment: `${marker('release', { agent: 'crew-board', at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board.` };
     return { args };
   }
@@ -156,7 +158,7 @@ export function renderPage({ token, repo }) {
 <div class="d-body" id="d-body"></div>
 <div class="d-foot" id="d-foot"></div>
 </aside>
-<div id="toasts" role="status" aria-live="polite"></div>
+<div id="toasts"></div>
 <script>
 const TOKEN=${js(token)};const REPO=${js(repo)};
 const COLS=${js(COLUMNS)};const ST=${js(BOARD_STATUSES)};const PR=${js(PRIORITIES)};
