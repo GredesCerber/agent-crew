@@ -66,7 +66,9 @@ export function prQueue(prs = [], { me, login, reviewers = [], config = {}, now 
     if (rs.approvals.length >= need) {
       // risk:high is merged manually; low/med if GitHub auto-merge did not turn on (no autoMergeRequest).
       const manual = risk === 'high' || ('autoMergeRequest' in pr && !pr.autoMergeRequest);
-      if (manual && checks.check === 'success' && checks.guard === 'success') out.push({ kind: 'merge', number: pr.number, title: pr.title, risk, age, sha: pr.headRefOid, reviewable: false });
+      // solo: nobody reviews, so a risk:high PR is the person's call: agents and merge-ready leave it alone (human: true)
+      const human = !!config.solo && risk === 'high';
+      if (manual && checks.check === 'success' && checks.guard === 'success') out.push({ kind: 'merge', number: pr.number, title: pr.title, risk, age, sha: pr.headRefOid, reviewable: false, ...(human ? { human } : {}) });
       // approved, checks still running (or auto-merge pending): nobody has to act, but humans should see it
       else if (checks.check !== 'success' || checks.guard !== 'success') out.push({ kind: 'checks', number: pr.number, title: pr.title, risk, age, reviewable: false });
       continue;

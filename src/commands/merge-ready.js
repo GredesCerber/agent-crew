@@ -16,7 +16,7 @@ export default {
   run({ dry_run = false } = {}, deps = {}) {
     const { config, root } = deps.config ? { config: deps.config, root: '.' } : loadConfig();
     const prs = deps.prs ?? ghJson(['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], { cwd: root, allowFail: true }) ?? [];
-    const ready = prQueue(prs, { me: 'crew-merge-ready', login: null, reviewers: [], config }).filter((x) => x.kind === 'merge');
+    const ready = prQueue(prs, { me: 'crew-merge-ready', login: null, reviewers: [], config }).filter((x) => x.kind === 'merge' && !x.human);
     const merged = [];
     const failed = [];
     if (!dry_run) {

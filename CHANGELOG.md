@@ -5,7 +5,16 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+From an independent review of 0.9.0.
+
 ### Fixed
+- `crew kickoff --apply` reads the phase from main's `crew.config.json`: after a publish that failed to push, a retry no longer skips the discovery gate and still publishes the switch to `build` (before, main could stay in `discovery` and crew-guard failed every code PR).
+- `crew discover status` reads `docs/discovery.md`, `docs/decisions.md` and the PRD from main, and requires the local `docs/prd.md` to match the reviewed PRD on main: ticking boxes locally or rewriting the PRD next to a reviewed stub no longer ends discovery.
+- Solo: a ready `risk:high` PR is left to the person (`human: true` in the queue): `crew task next` does not hand it to the agent and `crew merge-ready` skips it, as documented.
+- `crew init --force` keeps an existing `README.md` and only adds the newcomer line under its first heading.
+- `discovery_phase` and `spike_in_build` check both ends of a rename (`git mv spikes/x.js src/x.js` and `git mv src/app.js docs/` no longer pass).
+- `crew discover plan` errors carry `cause_hint`, `retry` and `stop_when` (crew/v1).
+- Docs: the discovery allowlist also includes `README.md` and `JOIN.md`; the discovery skill no longer suggests `spikes/` in the build phase; `JOIN.md` asks to update only when the local crew is older than the pinned one; `--skip_discovery` is described as a human's call that crew cannot enforce.
 - README (EN/RU) brought up to date: `risk:high` needs one review (not two) and a person merges it; the roadmap no longer lists auto-merge and the digest as future work; the discovery step, the captain and handover, ideas and questions, the team status, the new crew-guard rules (`discovery_phase`, `spike_in_build`, `outdated_crew`, waivers) and the files a new project gets are described; steps numbered 1–7.
 
 ## [0.9.0] — 2026-11-20

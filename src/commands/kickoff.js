@@ -7,7 +7,16 @@ import { run } from '../core/exec.js';
 import { loadConfig, agentId, requireProject } from '../core/config.js';
 import { hasCaptainPowers } from '../core/captain.js';
 import { loadActingCaptain } from './captain.js';
-import { loadDiscoveryStatus } from './discover.js';
+import { loadDiscoveryStatus, mainDoc } from './discover.js';
+
+/** The phase in main's crew.config.json (the local one is the fallback when main has none or it is unreadable). */
+export function mainPhase(root, localConfig = {}) {
+  try {
+    const text = mainDoc(root, 'crew.config.json');
+    if (text) return phaseOf(JSON.parse(text));
+  } catch { /* unreadable main config: fall back to the local one */ }
+  return phaseOf(localConfig);
+}
 import { phaseOf } from '../core/discovery.js';
 import {
   DEFAULT_PRD, parsePrd, lintPrd, planKickoff, prdApproval, renderTaskBody, renderEpicBody, formatLintItem,
@@ -248,7 +257,8 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
     });
   }
   // Discovery first: research done, human questions answered, decisions recorded, the PRD reviewed on main.
-  const phase = deps.phase !== undefined ? deps.phase : phaseOf(cfg?.config ?? {});
+  // The phase as main has it: a local "build" left by a kickoff whose push failed must not skip the gate or the config publish.
+  const phase = deps.phase !== undefined ? deps.phase : mainPhase(root, cfg?.config ?? {});
   if (phase === 'discovery' && !skip_discovery) {
     const status = deps.discovery ?? loadDiscoveryStatus(root);
     if (!status.ready) {
@@ -296,7 +306,7 @@ const kickoff = {
   args: [
     FILE_ARG,
     { name: 'apply', type: 'boolean', description: 'create issues (only if the PRD header says status: approved)' },
-    { name: 'skip_discovery', type: 'boolean', description: 'human decision: kick off although the discovery exit criteria are not met' },
+    { name: 'skip_discovery', type: 'boolean', description: 'kick off although the discovery exit criteria are not met; only when a human said so (not enforced: say it in the plan)' },
   ],
   run(opts) {
     return runKickoff(opts);

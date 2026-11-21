@@ -23,17 +23,27 @@ const myLogin = () => {
 const researchIssues = (root) => ghJson(['issue', 'list', '--state', 'all', '--label', RESEARCH_LABEL, '--limit', '200', '--json', 'number,title,body,state,labels'], { cwd: root, allowFail: true }) ?? [];
 
 /** Everything the exit criteria look at, from this checkout and GitHub. */
+/**
+ * A document as it is on main (reviewed), not in this checkout: ticking a box locally must not end discovery.
+ * Without a remote at all (a local experiment) the checkout is all there is.
+ */
+export function mainDoc(root, rel) {
+  if (git(['rev-parse', '--verify', '--quiet', 'origin/main'], { cwd: root, allowFail: true }).code !== 0) return read(root, rel) || null;
+  const r = git(['show', `origin/main:${rel}`], { cwd: root, allowFail: true });
+  return r.code === 0 ? r.stdout : null;
+}
+
 export function loadDiscoveryStatus(root) {
-  const discoveryText = read(root, DISCOVERY_DOC);
   git(['fetch', '--quiet', 'origin', 'main'], { cwd: root, allowFail: true });
-  const prd = git(['show', 'origin/main:docs/prd.md'], { cwd: root, allowFail: true });
+  const discoveryText = mainDoc(root, DISCOVERY_DOC) ?? '';
   return exitCriteria({
     planned: parseResearch(discoveryText).items,
     research: researchIssues(root),
     humanOpen: (ghJson(['issue', 'list', '--state', 'open', '--label', `${QUESTION_LABEL},${HUMAN_LABEL}`, '--limit', '100', '--json', 'number'], { cwd: root, allowFail: true }) ?? []),
     discoveryText,
-    decisionsText: read(root, DECISIONS_DOC),
-    prdOnMain: prd.code === 0 ? prd.stdout : null,
+    decisionsText: mainDoc(root, DECISIONS_DOC) ?? '',
+    prdOnMain: mainDoc(root, 'docs/prd.md'),
+    prdLocal: read(root, 'docs/prd.md') || null,
   });
 }
 
@@ -49,12 +59,17 @@ const plan = {
     const text = deps.text ?? read(root, DISCOVERY_DOC);
     if (!text) {
       return fail('no_discovery_doc', `${DISCOVERY_DOC} is missing`, {
+        cause_hint: 'research tasks come from the crew-research blocks of this file; projects made before 0.9 do not have it',
         retry: `write ${DISCOVERY_DOC}: crew-research blocks (id, question, area, owner, budget_hours) and an "## Exit criteria" checklist; the template is in a new project`,
         stop_when: 'nobody knows the open questions yet: analyze the brief first (skill crew-brief-analysis)',
       });
     }
     const { items, errors } = parseResearch(text);
-    if (errors.length) return fail('bad_discovery_doc', `${DISCOVERY_DOC}: ${errors.join('; ')}`, { retry: `fix ${DISCOVERY_DOC} and run crew discover plan again` });
+    if (errors.length) return fail('bad_discovery_doc', `${DISCOVERY_DOC}: ${errors.join('; ')}`, {
+      cause_hint: 'every crew-research block needs id, question, area, owner and budget_hours; ids must be unique',
+      retry: `fix ${DISCOVERY_DOC} and run crew discover plan again`,
+      stop_when: 'the same error after two fixes: show the block to the human',
+    });
     const existing = new Set((deps.existing ?? researchIssues(root)).map(researchIdOf).filter(Boolean));
     const todo = items.filter((i) => !existing.has(i.id));
     const view = items.map((i) => ({ id: i.id, title: researchTitle(i), area: i.area, owner: i.owner, budget_hours: i.budget_hours, exists: existing.has(i.id) }));
@@ -67,7 +82,7 @@ const plan = {
     const login = deps.login !== undefined ? deps.login : myLogin();
     const acting = deps.acting !== undefined ? deps.acting : deps.config ? null : loadActingCaptain(root, config);
     if (!hasCaptainPowers(login, config, acting)) {
-      return fail('not_captain', `Only the captain ${config.captain} plans the research${login ? `, and you are ${login}` : ''}`, { retry: 'members: take research tasks from crew task next', stop_when: 'immediately' });
+      return fail('not_captain', `Only the captain ${config.captain} plans the research${login ? `, and you are ${login}` : ''}`, { cause_hint: 'the team has one research plan: a second one creates duplicate research tasks', retry: 'members: take research tasks from crew task next', stop_when: 'immediately' });
     }
     const call = deps.gh ?? gh;
     const created = [];
@@ -77,7 +92,7 @@ const plan = {
       const r = call(args, { cwd: root, allowFail: true, input: researchBody(item) });
       const number = Number(/\/issues\/(\d+)/.exec(r.stdout ?? '')?.[1]);
       if (r.code !== 0 || !number) {
-        return fail('gh_failed', `Created ${created.length} of ${todo.length}, failed on ${item.id}`, { cause_hint: (r.stderr || r.stdout || '').split('\n')[0], retry: 'crew labels sync (crew:research may be missing), then crew discover plan --apply (created ones are skipped)', artifacts: { created } });
+        return fail('gh_failed', `Created ${created.length} of ${todo.length}, failed on ${item.id}`, { cause_hint: (r.stderr || r.stdout || '').split('\n')[0], retry: 'crew labels sync (crew:research may be missing), then crew discover plan --apply (created ones are skipped)', stop_when: 'it fails again after crew labels sync: run crew doctor and tell the human', artifacts: { created } });
       }
       created.push({ id: item.id, number });
     }

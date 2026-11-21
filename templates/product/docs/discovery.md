@@ -1,6 +1,6 @@
 # Discovery: what we research before the plan
 
-The project starts in the **discovery phase** (`crew.config.json` → `"phase": "discovery"`): no product code yet, only research under `docs/` and throwaway experiments under `spikes/`. crew-guard enforces it. `crew kickoff --apply` ends the phase once the exit criteria below are met.
+The project starts in the **discovery phase** (`crew.config.json` → `"phase": "discovery"`): no product code yet, only research under `docs/`, throwaway experiments under `spikes/`, and `README.md` / `JOIN.md`. crew-guard enforces it. `crew kickoff --apply` ends the phase once the exit criteria below are met.
 
 How it works:
 1. The captain's agent analyzes the brief (skill `crew-brief-analysis`) and lists the open questions here as `crew-research` blocks: one question, one owner (by area), a time budget in hours.

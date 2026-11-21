@@ -38,7 +38,7 @@ export function digestModel({ issues = [], prs = [], questions = [], ideas = [],
     .map((i) => `#${i.number} ${i.title} (${who(i)}, quiet ${quiet(i).min} min, lease ${lease})`);
   const prLines = prQueue(prs, { me: 'crew-digest', login: null, reviewers: [], config, now }).map((x) =>
     x.kind === 'fix' ? `#${x.number} ${x.title}: waits for its author (${x.reason})`
-      : x.kind === 'merge' ? `#${x.number} ${x.title}: ready to merge`
+      : x.kind === 'merge' ? `#${x.number} ${x.title}: ready to merge${x.human ? ' (risk:high in solo: a person reads and merges it)' : ''}`
         : x.kind === 'checks' ? `#${x.number} ${x.title}: approved, waiting for checks`
           : `#${x.number} ${x.title}: waits for review ${x.age} min${x.age > reviewWait ? ' (slow)' : ''}`);
   const unanswered = questions.filter((q) => !names(q.labels).includes(HUMAN_LABEL))

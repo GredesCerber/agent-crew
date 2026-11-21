@@ -37,6 +37,9 @@ test('solo: crew-guard passes a green PR without a review; protected files still
   assert.equal(evaluateGuard({ ...base, files: [{ filename: '.github/workflows/crew.yml', status: 'modified' }] }).state, 'failure');
   const green = [{ name: 'check', conclusion: 'SUCCESS' }, { context: 'crew-guard', state: 'SUCCESS' }];
   const pr = (risk) => ({ number: 1, title: 'x', body: base.body, headRefOid: SHA, createdAt: '2026-11-20T10:00:00Z', isDraft: false, author: { login: 'me' }, labels: [{ name: `risk:${risk}` }], comments: [], statusCheckRollup: green });
-  assert.equal(prQueue([pr('high')], { me: 'claude@pc', config })[0].kind, 'merge', 'risk:high: merged by a person (crew merge-ready or by hand)');
+  const high = prQueue([pr('high')], { me: 'claude@pc', config })[0];
+  assert.equal(high.kind, 'merge');
+  assert.equal(high.human, true, 'risk:high in solo: the person merges it, not the agent or merge-ready');
+  assert.equal(prQueue([pr('high')], { me: 'claude@pc', config: { review: { approvals: 0, approvals_high: 0 } } })[0].human, undefined, 'team repos keep the old behavior');
   assert.deepEqual(prQueue([pr('med')], { me: 'claude@pc', config }), [], 'med: auto-merge takes it');
 });

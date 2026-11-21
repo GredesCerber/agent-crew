@@ -187,7 +187,7 @@ const next = {
       }
       const resumed = resume();
       if (resumed) return resumed;
-      const merge = q.find((x) => x.kind === 'merge');
+      const merge = q.find((x) => x.kind === 'merge' && !x.human);
       if (merge) {
         return ok(`Merge the ready PR #${merge.number} ${merge.title} (${merge.risk}, review and checks are green)`, {
           artifacts: { kind: 'merge', pr: merge.number, risk: merge.risk },

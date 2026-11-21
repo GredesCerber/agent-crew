@@ -34,7 +34,21 @@ export default {
     mkdirSync(root, { recursive: true });
 
     // 1. Product template (AGENTS.md, .github, contracts/, events/, ...)
-    cpSync(join(HARNESS_ROOT, 'templates', 'product'), root, { recursive: true, force: true });
+    // An existing README.md is the user's own: --force refreshes crew files, not their project description.
+    const templateReadme = join(HARNESS_ROOT, 'templates', 'product', 'README.md');
+    const keepReadme = existsSync(join(root, 'README.md'));
+    cpSync(join(HARNESS_ROOT, 'templates', 'product'), root, { recursive: true, force: true, filter: (src) => !(keepReadme && resolve(src) === resolve(templateReadme)) });
+    if (keepReadme) {
+      // keep their text, add only the newcomer line (once) under the first heading
+      const own = readFileSync(join(root, 'README.md'), 'utf8');
+      const joinLine = readFileSync(templateReadme, 'utf8').split('\n').find((l) => l.startsWith('> **New on the team?**'));
+      if (joinLine && !own.includes('**New on the team?**')) {
+        const lines = own.split('\n');
+        const at = lines[0]?.startsWith('#') ? 1 : 0;
+        lines.splice(at, 0, ...(at ? ['', joinLine] : [joinLine, '']));
+        writeFileSync(join(root, 'README.md'), lines.join('\n'));
+      }
+    }
     // 2. Vendor-neutral roles and skills → agents/ (source for adapters)
     cpSync(join(HARNESS_ROOT, 'roles'), join(root, 'agents', 'roles'), { recursive: true });
     cpSync(join(HARNESS_ROOT, 'skills'), join(root, 'agents', 'skills'), { recursive: true });

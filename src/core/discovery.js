@@ -23,14 +23,17 @@ export function phaseProblems(files = [], config = {}) {
   const phase = phaseOf(config);
   const norm = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
   if (phase === 'discovery') {
-    const outside = files.map((f) => norm(f.filename)).filter((p) => !DISCOVERY_ALLOWED.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a)));
+    // a rename counts on both ends: moving src/app.js to docs/ removes product code just as much
+    const allowed = (p) => DISCOVERY_ALLOWED.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a));
+    const outside = [...new Set(files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean).map(norm)).filter((p) => !allowed(p)))];
     return outside.length ? [{
       rule: 'discovery_phase',
-      message: `discovery phase: no product code until the plan is approved (crew kickoff --apply); only docs/ and spikes/ may change, but the PR touches ${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}`,
+      message: `discovery phase: no product code until the plan is approved (crew kickoff --apply); only docs/, spikes/, README.md and JOIN.md may change, but the PR touches ${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}`,
       files: outside,
     }] : [];
   }
-  const spikes = files.filter((f) => norm(f.filename).startsWith(SPIKES_DIR) && f.status !== 'removed').map((f) => norm(f.filename));
+  // moving a spike out (git mv spikes/x.js src/x.js) is how spike code would become product code
+  const spikes = files.filter((f) => f.status !== 'removed' && (norm(f.filename).startsWith(SPIKES_DIR) || norm(f.previous_filename).startsWith(SPIKES_DIR))).map((f) => norm(f.filename));
   return spikes.length ? [{
     rule: 'spike_in_build',
     message: `spikes/ holds throwaway discovery experiments and is not changed after the plan (${spikes.slice(0, 3).join(', ')}): put real code where the product lives`,
@@ -96,7 +99,7 @@ export function researchBody(item) {
  * humanOpen: open questions waiting for a human; discoveryText / decisionsText: the documents;
  * prdOnMain: docs/prd.md as it is on origin/main (it gets there through a reviewed PR), or null.
  */
-export function exitCriteria({ planned = [], research = [], humanOpen = [], discoveryText = '', decisionsText = '', prdOnMain = null } = {}) {
+export function exitCriteria({ planned = [], research = [], humanOpen = [], discoveryText = '', decisionsText = '', prdOnMain = null, prdLocal = null } = {}) {
   const missing = [];
   const byId = new Map(research.map((i) => [researchIdOf(i), i]).filter(([id]) => id));
   const notCreated = planned.filter((p) => !byId.has(p.id)).map((p) => p.id);
@@ -109,6 +112,10 @@ export function exitCriteria({ planned = [], research = [], humanOpen = [], disc
   if (unchecked.length) missing.push(`exit criteria not checked in ${DISCOVERY_DOC}: ${unchecked.join('; ')}`);
   if (!/^##\s+\d{4}-\d{2}-\d{2}/m.test(decisionsText)) missing.push(`no decision recorded in ${DECISIONS_DOC} yet (## YYYY-MM-DD — what was decided)`);
   if (!prdOnMain || !/```crew-task/.test(prdOnMain)) missing.push('the PRD (docs/prd.md with crew-task blocks) is not on main yet: it gets there through a PR reviewed by an agent of another vendor');
+  // Tasks are created from the local file: it must be the reviewed one, not a rewrite next to a reviewed stub.
+  else if (prdLocal !== null && prdLocal.replace(/\r\n/g, '\n') !== prdOnMain.replace(/\r\n/g, '\n')) missing.push('the local docs/prd.md differs from the PRD on main: tasks are created only from the reviewed PRD (git pull on main, or get the changes reviewed in a PR first)');
+  // Tasks are created from the local file: it must be the reviewed one, not a rewrite next to a reviewed stub.
+  else if (prdLocal !== null && prdLocal.replace(/\r\n/g, '\n') !== prdOnMain.replace(/\r\n/g, '\n')) missing.push('the local docs/prd.md differs from the PRD on main: tasks are created only from the reviewed PRD (git pull on main, or get the changes reviewed in a PR first)');
   return {
     ready: missing.length === 0,
     missing,
