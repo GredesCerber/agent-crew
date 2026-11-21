@@ -5,6 +5,10 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-11-21
+
+The captain's console, checked by an independent review before release.
+
 ### Added
 - **The captain's console.** `crew board` is now a full console, designed from mockups: a kanban with drag and drop (to another status, or onto a person to assign), a task drawer (goal, acceptance criteria, owner and lease time left, timeline of claims and heartbeats, dependencies, the linked PR with checks and crew-guard, Release lease), and screens for Team & roles (areas, current work, agents, done this week, hand the captain role over or take it back), Inbox (accept or reject ideas, answer questions for a human: the agent gets the answer through `crew task next`), Discovery (research against its time budget, exit criteria, decisions, what blocks `crew kickoff --apply`), Pull requests (filters, review state on the current commit, checks, crew-guard rule, the next step) and Activity (this week's feed, tasks done per day, claim-to-PR time, stale leases), plus a Pause team / Resume button (`crew:pause`). Light and dark themes, phone layout; every change is validated again on the server.
 
