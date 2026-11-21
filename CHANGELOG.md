@@ -5,6 +5,10 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-21
+
+A team gets to its first protected merge sooner, and the plan is approved by a person. Reviewed twice by Codex before release.
+
 ### Added
 - **`crew up` looks before it writes.** `crew up ... --check` reads the GitHub plan, your rights on the owner and the repo, `crew` on PATH and the agent hosts, and changes nothing. A plain `crew up` runs the same check first and stops with `preflight` before the first write when `main` could not be protected (a private repo on the free plan), when you are not an admin of an existing repo, or when you cannot create repos under the owner (not you, not an organization you are an active member of, or one that does not let members create repos of that visibility). `--no_protection` sets up a free private repo anyway, knowingly, and leaves the protection step out. `--hosts` accepts only hosts crew has an adapter for. Protection is reported as available, unavailable or unverified (the plan could not be read).
 - **A pilot on one issue** ([docs/PILOT.md](docs/PILOT.md)): try crew in a repo you already have, on one existing issue, through claim, review and a protected merge, without discovery or a PRD.
