@@ -435,9 +435,11 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 
 - [x] **v0**: `crew` (CLI + MCP), AGENTS.md, roles and skills, Claude Code and Codex adapters, GitHub templates, CI, compliance
 - [x] **v1**: MCP in the task worktree (`cwd`), leases by commits, `crew:pause` in code, `crew check` timeouts, config protection in CI, `crew github setup`, `crew worker`, `crew metrics`, `crew eval`, `crew kickoff` with the `crew-team` block, `crew up`, review-first queue; see [`docs/ROADMAP-v1.md`](docs/ROADMAP-v1.md)
-- [ ] **v1 (remaining)**: a `--budget` flag for the worker, verified headless flags for Claude
 - [x] **v0.6–0.9**: deterministic merges in CI (`crew merge-ready`), a team digest without an LLM, the local board, questions between agents, ideas, captain handover, per-session agent names, the discovery phase, one-message join, solo mode
-- [ ] **next**: nightly checks, adapters for Gemini and Cursor
+- [ ] **0.10**: session locks per repo, resume after a renamed session, pre-release versions, live checks of Codex and Claude headless wiring, `crew worker --budget`
+- [ ] **0.11 and later**: nightly checks, an independent review before each release, adapters for Gemini and Cursor, actions only a person may take
+
+The details, with why and when each item counts as done: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Developing the tool itself
 

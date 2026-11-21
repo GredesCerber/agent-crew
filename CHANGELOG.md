@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Changed
+- A new roadmap in `docs/ROADMAP.md` (0.10: keep the promises; 0.11: fewer things to watch; later; not planned); `docs/ROADMAP-v1.md` is archived and the README roadmap points to it.
+
 ## [0.9.1] — 2026-11-21
 
 From an independent review of 0.9.0.

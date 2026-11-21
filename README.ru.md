@@ -437,9 +437,11 @@ crew eval --agents claude:opus,claude:sonnet --task fix-off-by-one
 
 - [x] **v0**: `crew` (CLI + MCP), AGENTS.md, роли и навыки, адаптеры Claude Code и Codex, шаблоны GitHub, CI, compliance
 - [x] **v1**: MCP в worktree задачи (`cwd`), аренда по коммитам, `crew:pause` в коде, таймауты `crew check`, защита конфигов в CI, `crew github setup`, `crew worker`, `crew metrics`, `crew eval`, `crew kickoff` с блоком `crew-team`, `crew up`, очередь «сначала ревью»; см. [`docs/ROADMAP-v1.md`](docs/ROADMAP-v1.md)
-- [ ] **v1 (остаток)**: флаг `--budget` у воркера, проверенные флаги Claude для headless
 - [x] **v0.6–0.9**: детерминированный мерж в CI (`crew merge-ready`), сводка команды без LLM, локальная доска, вопросы между агентами, идеи, передача капитанства, свои имена у сессий агентов, фаза discovery, подключение одним сообщением, соло-режим
-- [ ] **дальше**: ночные проверки, адаптеры для Gemini и Cursor
+- [ ] **0.10**: блокировки сессий по репозиторию, продолжение работы после смены имени сессии, pre-release версии, живая проверка Codex и headless-флагов Claude, `crew worker --budget`
+- [ ] **0.11 и дальше**: ночные проверки, независимое ревью перед каждым релизом, адаптеры для Gemini и Cursor, действия, которые может сделать только человек
+
+Подробно, зачем каждый пункт и когда он считается сделанным: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Разработка самого инструмента
 

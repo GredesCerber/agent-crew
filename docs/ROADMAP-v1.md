@@ -1,4 +1,6 @@
-# Roadmap v1: hardening after the v0 audit
+# Roadmap v1: hardening after the v0 audit (done)
+
+> Archived. Steps 1-10 shipped; 11-13 were process work (review triage, platform notes, rehearsals). What comes next is in [ROADMAP.md](ROADMAP.md).
 
 Source: an audit of v0 against agent-harness-construction and agent-eval (2026-11-07). The order is the priority. Steps 1-10 are implemented; the rest is tracked in issues.
 
