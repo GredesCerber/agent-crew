@@ -1,10 +1,12 @@
 // Task board for humans (crew board): see the queue and steer it by hand without spending agent tokens.
 // Pure functions: the model shown on the page, and the gh arguments for each action the page can request.
+import { readFileSync } from 'node:fs';
 import { labelValue, marker, safeText } from './issues.js';
 import { prQueue } from './queue.js';
 import { LOGIN_RE } from './prd.js';
 import { digestModel } from './digest.js';
 import { IDEA_LABEL, ideaMeta, canDecide, acceptArgs } from './ideas.js';
+import { QUESTION_LABEL, answerMarker } from './questions.js';
 
 export const COLUMNS = ['ready', 'claimed', 'review', 'waiting', 'blocked', 'needs-spec'];
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -96,64 +98,68 @@ export function actionArgs({ op, value, reason }, current, { members = [], login
     if (to !== 'normal' && !labels.includes(`priority:${to}`)) args.push('--add-label', `priority:${to}`);
     return args.length > 3 ? { args } : { noop: true };
   }
+  if (op === 'release') {
+    // a person frees a task an agent holds (its session died, or it went the wrong way): same as crew task release --force
+    const from = labels.filter((l) => l.startsWith('status:')).map((l) => l.slice(7));
+    if (from.includes('review')) return { error: `#${n} has a PR in review: close or finish the PR instead` };
+    if (!from.some((s) => s === 'claimed' || s === 'blocked')) return { error: `#${n} is not held by an agent (status ${from.join(',') || 'none'})` };
+    const args = ['issue', 'edit', n, '--add-label', 'status:ready'];
+    for (const f of from) if (f !== 'ready') args.push('--remove-label', `status:${f}`);
+    for (const a of current.assignees ?? []) args.push('--remove-assignee', a.login);
+    return { args, comment: `${marker('release', { agent: `crew-board@${login ?? 'human'}`, at: new Date().toISOString() })}\n↩️ Returned to the queue from crew board${login ? ` by @${login}` : ''}: the lease is free. ${safeText(String(reason ?? '')).slice(0, 500)}`.trim() };
+  }
+  if (op === 'answer') {
+    // a person answers a question an agent asked: the asker gets it through crew task next (kind: answered)
+    if (!labels.includes(QUESTION_LABEL)) return { error: `#${n} is not a crew question` };
+    const text = String(value ?? '').trim();
+    if (!text) return { error: 'write the answer first' };
+    return { args: ['issue', 'close', n, '--reason', 'completed', '--comment', `${answerMarker(`@${login ?? 'human'}`)}\n${safeText(text).slice(0, 4000)}`] };
+  }
   return { error: `unknown action ${op}` };
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Values put into the inline script: JSON, with "<" escaped so a repo name can never close the script tag.
+const js = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
+const asset = (name) => readFileSync(new URL(`../board/${name}`, import.meta.url), 'utf8');
 
-/** The board page. Data comes from /api/board; actions go to /api/action with the per-run token. */
+/**
+ * The captain's console. The page shell is here; styles and the script live in src/board/ (board.css,
+ * board.client.js) and are inlined, so the page needs no other request and the CSP stays 'self'.
+ * Data comes from /api/* and every change goes to /api/action with the per-run token.
+ */
 export function renderPage({ token, repo }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>crew board — ${esc(repo)}</title>
-<style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--muted:#667085;--line:#e3e6ec;--hi:#d92d20;--warn:#b54708;--good:#067647}
-@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1f26;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a313b;--hi:#f97066;--warn:#fdb022;--good:#47cd89}}
-*{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-header h1{font-size:16px;margin:0}.muted{color:var(--muted)}
-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:12px 16px}
-section h2,#prs h2,.alerts h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 8px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px}
-.card a{color:var(--ink);text-decoration:none;font-weight:600}.meta{color:var(--muted);font-size:12px;margin:4px 0 6px}
-.prio-high{border-left:4px solid var(--hi)}.prio-low{opacity:.75}
-.row{display:flex;gap:6px;flex-wrap:wrap}select{font:inherit;font-size:12px;padding:2px 4px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
-#prs{padding:0 16px 16px}#prs a{color:var(--ink)}#prs li{margin:4px 0}#msg{color:var(--hi)}
-#cap{padding:12px 16px 0}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
-.kpi span{color:var(--muted);font-size:12px}.kpi.bad{border-color:var(--hi)}.kpi.bad b{color:var(--hi)}.kpi.warn{border-color:var(--warn)}.kpi.warn b{color:var(--warn)}
-.alerts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-top:8px}.alerts ul{margin:0;padding-left:18px}.alerts li{margin:2px 0}
-.ok{color:var(--good)}
-</style></head><body>
-<header><h1>crew board</h1><span class="muted">${esc(repo)}</span><span class="muted" id="time"></span><span id="msg"></span></header>
-<div id="cap"><div class="kpis" id="kpis"></div><div class="alerts" id="alerts"></div></div>
-<main id="cols"></main>
-<div id="prs"><h2>Pull requests waiting</h2><ul id="prlist"></ul></div>
+<style>${asset('board.css')}</style></head><body>
+<header>
+<div class="top">
+<div class="logo"><i aria-hidden="true">⛵</i>crew board</div><span class="sep" aria-hidden="true"></span><span class="repo">${esc(repo)}</span>
+<span id="phase"></span><span id="captain"></span>
+<span class="grow"></span>
+<label class="searchbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" class="search" type="search" placeholder="Filter tasks…" aria-label="Filter cards by number, title, area or @login"></label>
+<span class="muted" id="time">loading…</span>
+<button class="btn danger" id="pause" title="Stop all agents from taking tasks (crew:pause)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>Pause team</button>
+<button class="btn icon" id="refresh" title="Refresh now" aria-label="Refresh now"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+<span class="seg" role="group" aria-label="Theme"><button class="btn icon" id="light" title="Light" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button><button class="btn icon" id="dark" title="Dark" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></span>
+</div>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Screens"></nav>
+</header>
+<div id="pausebar"></div>
+<main class="wrap" id="main"><div id="kpis" class="hint">Loading…</div></main>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-title" aria-hidden="true">
+<div class="d-head"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/></svg></span>
+<div style="flex:1;min-width:0"><div class="hint" id="d-kicker">Task</div><div class="row"><h2 id="d-title">…</h2><span id="d-status"></span></div></div>
+<button class="btn icon" id="d-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+<div class="d-body" id="d-body"></div>
+<div class="d-foot" id="d-foot"></div>
+</aside>
+<div id="toasts" role="status" aria-live="polite"></div>
 <script>
-const TOKEN=${JSON.stringify(token)};const REPO=${JSON.stringify(repo)};
-const COLS=${JSON.stringify(COLUMNS)};const ST=${JSON.stringify(BOARD_STATUSES)};const PR=${JSON.stringify(PRIORITIES)};
-const e=(t,a={},...k)=>{const n=document.createElement(t);for(const[x,y]of Object.entries(a)){if(x==='on')for(const[ev,f]of Object.entries(y))n.addEventListener(ev,f);else n.setAttribute(x,y)}for(const c of k)n.append(c);return n};
-const sel=(opts,cur,on)=>{const s=e('select',{on:{change:()=>on(s.value)}});for(const[v,l]of opts){const o=e('option',{value:v},l);if(v===cur)o.selected=true;s.append(o)}return s};
-async function act(issue,op,value,reason){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json','x-crew-token':TOKEN},body:JSON.stringify({issue,op,value,reason})});const j=await r.json();document.getElementById('msg').textContent=j.error||'';load()}
-async function load(){const r=await fetch('/api/board',{headers:{'x-crew-token':TOKEN}});const m=await r.json();if(m.error){document.getElementById('msg').textContent=m.error;return}
-document.getElementById('time').textContent='updated '+new Date(m.generated_at).toLocaleTimeString();
-const d=m.digest,c=d.counts,k=document.getElementById('kpis');k.replaceChildren();
-for(const[n,l,cls]of[[c.ready,'ready',''],[c.claimed,'in progress',''],[c.human,'need a human',c.human?'bad':''],[c.stale,'stale leases',c.stale?'warn':''],[c.prs,'PRs waiting',''],[c.questions,'open questions',''],[c.ideas??0,'ideas to decide',c.ideas?'warn':''],[c.idle,'idle members',c.idle?'warn':'']])k.append(e('div',{class:'kpi '+cls},e('b',{},String(n)),e('span',{},l)));
-const al=document.getElementById('alerts');al.replaceChildren();const busy=d.sections.filter(s=>s.key!=='prs'&&s.key!=='ideas'&&s.lines.length);
-if((m.ideas||[]).length){const ul=e('ul');for(const i of m.ideas){const ok=e('button',{on:{click:()=>act(i.number,'idea','accept')}},'Accept');const no=e('button',{on:{click:()=>{const why=prompt('Why not (the person will read this)?');if(why)act(i.number,'idea','reject',why)}}},'Reject');ul.append(e('li',{},e('a',{href:'https://github.com/'+REPO+'/issues/'+i.number,target:'_blank',rel:'noopener'},'#'+i.number+' '+i.title),i.who?' (from @'+i.who+') ':' ',ok,' ',no))}al.append(e('div',{class:'card'},e('h2',{},'Ideas waiting for the captain'),ul))}
-for(const s of busy){const ul=e('ul');for(const l of s.lines)ul.append(e('li',{},l));al.append(e('div',{class:'card'},e('h2',{},s.title),ul))}
-if(!busy.length&&!(m.ideas||[]).length)al.append(e('div',{class:'card ok'},'All clear: nobody waits for a human, no stale leases, everyone is busy.'));
-const cols=document.getElementById('cols');cols.replaceChildren();
-for(const c of COLS){const s=e('section',{},e('h2',{},c+' ('+m.columns[c].length+')'));
-for(const t of m.columns[c]){const who=[['','unassigned'],...m.members.map(x=>[x,x])];
-const ctl=e('div',{class:'row'},sel(who,t.assignees[0]||'',v=>act(t.number,'assign',v)),sel(PR.map(p=>[p,p]),t.priority,v=>act(t.number,'priority',v)));
-if(ST.includes(t.status))ctl.append(sel(ST.map(x=>[x,x]),t.status,v=>act(t.number,'status',v)));
-s.append(e('div',{class:'card prio-'+t.priority},e('a',{href:'https://github.com/'+REPO+'/issues/'+t.number,target:'_blank',rel:'noopener'},'#'+t.number+' '+t.title),
-e('div',{class:'meta'},[t.area&&('area:'+t.area),t.risk&&('risk:'+t.risk),t.tier&&('tier:'+t.tier),t.assignees.length?('@'+t.assignees.join(' @')):'no owner',t.idle_min+' min'].filter(Boolean).join(' · ')),ctl))}
-cols.append(s)}
-const ul=document.getElementById('prlist');ul.replaceChildren();
-for(const p of m.prs)ul.append(e('li',{},e('a',{href:'https://github.com/'+REPO+'/pull/'+p.number,target:'_blank',rel:'noopener'},'#'+p.number+' '+p.title),' — '+(p.kind==='review'?('waiting for review '+p.age_min+' min ('+p.have+'/'+p.need+')'):p.kind==='merge'?'ready to merge':p.kind==='checks'?'approved, waiting for checks':('waiting for the author: '+p.reason))));
-if(!m.prs.length)ul.append(e('li',{class:'muted'},'none'))}
-load();setInterval(load,30000);
+const TOKEN=${js(token)};const REPO=${js(repo)};
+const COLS=${js(COLUMNS)};const ST=${js(BOARD_STATUSES)};const PR=${js(PRIORITIES)};
+${asset('board.client.js')}
 </script></body></html>`;
 }

@@ -5,7 +5,7 @@ import { authorAgent, linkedIssue, reviewPolicy, reviewState, vendorOf } from '.
 import { labelValue, tierAllows } from './issues.js';
 import { sameAgent } from './session.js';
 
-const riskOfPr = (pr) => (pr.labels ?? []).map((l) => l.name ?? l).find((n) => n.startsWith('risk:'))?.slice(5) ?? 'med';
+export const riskOfPr = (pr) => (pr.labels ?? []).map((l) => l.name ?? l).find((n) => n.startsWith('risk:'))?.slice(5) ?? 'med';
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**

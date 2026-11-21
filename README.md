@@ -228,7 +228,7 @@ Whoever runs `crew up` is the captain (`crew.config.json` → `captain`): the on
 When a person suggests something outside the current task, the agent does not build it: `crew idea` records it for the captain, who accepts it as a `needs-spec` task (`crew idea accept`) or rejects it with a reason. When an agent needs something from another area, it asks the owner with `crew ask <area>`; the answer comes back through `crew task next`. Decisions only a human can make go with `--human` to the captain. Nothing is agreed "in chat": everything is an issue the humans can see.
 
 ### Team status without an LLM
-`crew digest` (kept by CI in a pinned issue every 15 minutes) and `crew board` (a local page with a captain panel) show what waits for a human, stale leases, PRs waiting, open questions, ideas, idle members, people with access but no area, the phase and research over budget. Nobody has to keep an agent polling the repo.
+`crew digest` (kept by CI in a pinned issue every 15 minutes) and `crew board` (a local captain's console with a kanban, a task drawer and screens for the team, the inbox, discovery, PRs and activity) show what waits for a human, stale leases, PRs waiting, open questions, ideas, idle members, people with access but no area, the phase and research over budget. Nobody has to keep an agent polling the repo.
 
 ### Cross-agent review and `crew-guard`
 Claude's code is reviewed by Codex and vice versa: different models catch different mistakes. `crew-guard` is a commit status set on every PR:
@@ -265,7 +265,7 @@ Claude's code is reviewed by Codex and vice versa: different models catch differ
 | `crew task status <id> blocked --note "..."` | change the status and leave a handoff |
 | `crew task release <id>` / `heartbeat <id>` | give a task back / extend the lease (your own only; someone else's needs a human with `--force`) |
 | `crew shots before\|after --url <page> [--name <screen>]` | before/after screenshot (Playwright) for a task that changes the UI; `crew pr open` shows them as a Before / After table |
-| `crew board [--port 4747]` | local task board in the browser: a captain panel (counters, what waits for a human, ideas with Accept / Reject), the queue by status, PRs waiting; set assignee, status and priority by hand (no agent tokens) |
+| `crew board [--port 4747]` | the captain's console in the browser (no agent tokens): a kanban where you drag a card to another status or onto a person to assign it; a task drawer (goal, acceptance criteria, owner and lease time left, timeline, dependencies, the linked PR; release a stuck lease); Team & roles (areas, who works on what, hand the captain role over); Inbox (accept or reject ideas, answer questions agents asked a person); Discovery (research against its time budget, exit criteria, decisions); Pull requests (review state, checks, crew-guard, the next step); Activity (this week's feed, tasks per day, claim-to-PR time); a Pause team button (`crew:pause`) |
 | `crew upgrade [--apply]` | update an existing project to the installed version (rules, skills, workflows, agent configs; migrates hk projects); `--apply` opens a PR |
 | `crew ask <area\|@login> --text "..." [--task N] [--human]` | ask the owner of an area; the question is an issue (`crew:question`), the answer arrives in `crew task next` |
 | `crew idea "..." [--original "..."] [--from_person login] [--task N]` | record an idea a person suggested outside the current task; the captain sees it in `crew task next`, the digest and the board |
