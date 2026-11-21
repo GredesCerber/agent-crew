@@ -28,6 +28,7 @@ function fakeRun(gh = {}, { remoteMain = false, clone, pull = OKR() } = {}) {
       if (key === 'auth status') return gh.auth ?? OKR();
       if (args[0] === 'api' && args[1] === 'user') return gh.user ?? OKR('alice 42');
       if (args[0] === 'api' && args[1] === 'user/repository_invitations') return gh.invitations ?? OKR('[]');
+      if (args[0] === 'api' && /^orgs\/[^/]+\/memberships\//.test(args[1])) return gh.membership ?? OKR('{"state":"active","role":"admin"}');
       if (args[0] === 'repo' && args[1] === 'view' && args.includes('viewerPermission')) return gh.perm ?? OKR('WRITE');
       if (args[0] === 'repo' && args[1] === 'view') return gh.view ?? NO('GraphQL: Could not resolve to a Repository');
       if (args[0] === 'repo' && args[1] === 'clone') return clone ? clone(args[2], args[3]) : NO();

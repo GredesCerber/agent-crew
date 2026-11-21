@@ -14,10 +14,18 @@ cd your-repo
 crew github setup            # dry run: what it would change on GitHub, and which of your rules it keeps
 ```
 
-`crew github setup` only **adds** to the protection of `main`. Your required checks stay required, a higher number of
-required human approvals stays, and flags you turned on (code owners, admins included, conversation resolution) stay
-on. It warns when something conflicts: with "require linear history" crew PRs cannot merge, because crew merges with
-merge commits (squash loses the `Agent:` trailers that crew-guard reads).
+`crew github setup` only **adds** to the protection of `main`. Your required checks stay required (with the app that
+must report them), a higher number of required human approvals stays, who may dismiss reviews, bypass pull requests or
+push stays, and flags you turned on (code owners, admins included, conversation resolution) stay on. If it cannot read
+the current protection, it changes nothing. It refuses, before writing anything, when your rules conflict with crew:
+"require linear history" (crew merges with merge commits, because squash loses the `Agent:` trailers crew-guard
+reads), or a required check named `check` or `crew-guard` that another app reports.
+
+Before you start, save what `main` enforces today, so you can go back:
+
+```bash
+gh api repos/<owner>/<repo>/branches/main/protection > protection-before.json
+```
 
 A **private repo on the free GitHub plan cannot protect `main`**: PR rules and checks would bind nobody. Use a
 public repo, a paid plan, or treat the pilot as a demo without protection.
@@ -70,5 +78,9 @@ PR, its checks and the review.
 ## 5. Decide
 
 Questions worth answering after the pilot: did the agent's PR meet the criteria; did the review catch something; how
-long from claim to merge (`crew metrics`); what did a person have to do by hand. To stop, delete the files `crew init`
-added and run `crew github setup` again only if you want crew's rules back.
+long from claim to merge (`crew metrics`); what did a person have to do by hand.
+
+To stop, first take crew's checks out of the protection of `main`, **then** delete the files: otherwise every PR waits
+for `check` and `crew-guard`, which no workflow reports any more. In the repo settings (Branches → main) remove `check`
+and `crew-guard` from the required status checks, or put back what you saved in `protection-before.json`. Then remove
+the files `crew init` added (`crew.config.json`, `.github/workflows/crew*.yml`, `agents/`, the agent configs) in a PR.

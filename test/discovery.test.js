@@ -109,7 +109,7 @@ test('kickoff --apply waits for discovery; --skip_discovery is the human overrid
     if (args[0] === 'issue' && args[1] === 'create') { creates.push(args); return { code: 0, stdout: `https://github.com/o/r/issues/${creates.length}` }; }
     return { code: 1, stdout: '', stderr: 'unexpected' };
   };
-  const base = { root, areas: DEFAULT_CONFIG.areas, gh, sleep: async () => {}, phase: 'discovery', discovery: { ready: false, missing: ['research still open: #5'] } };
+  const base = { root, areas: DEFAULT_CONFIG.areas, gh, isAdmin: () => true, sleep: async () => {}, phase: 'discovery', discovery: { ready: false, missing: ['research still open: #5'] } };
   const blocked = await runKickoff({ apply: true }, base);
   assert.equal(blocked.error.code, 'discovery_not_done');
   assert.equal(creates.length, 0, 'nothing created');

@@ -115,7 +115,7 @@ export function taskView(issue, { prs = [], config = {}, now = Date.now(), lastC
     goal,
     criteria,
     body: text.slice(0, 2500),
-    owner: owner ? { agent: owner.agent ?? null, since: owner.createdAt ?? owner.at ?? null, lease_left_min: left, stale: left !== null && left < 0 } : null,
+    owner: owner ? { agent: owner.agent ?? null, since: owner.createdAt ?? owner.at ?? null, lease_id: `${owner.agent ?? '?'}@${owner.createdAt ?? owner.at ?? ''}`, lease_left_min: left, stale: left !== null && left < 0 } : null,
     lease_minutes: leaseMinutes,
     timeline,
     after,
@@ -316,7 +316,7 @@ export function activityView({ closed: allClosed = [], merged = [], events = [],
  * The plan on the Discovery tab: the PRD in this folder, its revision, whether the captain approved exactly it, and
  * whether main has the same text. text is shown so the captain approves what they read.
  */
-export function planView({ text = '', rev, approval = {}, mainRev = null, tasks = null, file = 'docs/prd.md' } = {}) {
+export function planView({ text = '', rev, approval = {}, mainRev = null, tasks = null, file = 'docs/prd.md', max = 200_000 } = {}) {
   return {
     file,
     rev,
@@ -328,7 +328,9 @@ export function planView({ text = '', rev, approval = {}, mainRev = null, tasks 
     changed_since: !approval.approved && (approval.revs ?? []).length > 0,
     main_rev: mainRev,
     same_as_main: mainRev === null ? null : mainRev === rev,
-    text: plain(text, 20000),
+    // the whole text as it is, comments included: the captain approves what agents will read, nothing hidden
+    too_long: text.length > max,
+    text: text.length > max ? '' : String(text).replace(/\r\n/g, '\n'),
   };
 }
 

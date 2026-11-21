@@ -190,13 +190,17 @@ export const PRD_APPROVAL_LABEL = 'crew:prd-approval';
 export const PRD_APPROVAL_TITLE = 'crew: PRD approvals';
 
 /**
- * Revision of a PRD: the first 12 hex of sha256 over its text, line endings normalized and the crew:prd header
- * left out (writing "approved" into the header must not change what was approved). Any other edit changes it.
+ * Revision of a PRD: the full sha256 (hex) of its text, line endings normalized and the crew:prd header left out
+ * (writing "approved" into the header must not change what was approved). Any other edit changes it.
  */
 export function prdRevision(text = '') {
   const body = String(text).replace(/\r\n/g, '\n').split('\n').filter((l) => !PRD_HEADER_RE.test(l)).join('\n').trim();
-  return createHash('sha256').update(body).digest('hex').slice(0, 12);
+  return createHash('sha256').update(body).digest('hex');
 }
+/** Short form for people (the full revision is what gets approved). */
+export const shortRev = (rev) => String(rev ?? '').slice(0, 12);
+/** The longest PRD the board shows in full; a longer one cannot be approved there (nobody would read all of it). */
+export const MAX_PRD_CHARS = 200_000;
 
 /** The comment that records an approval of one revision. */
 export const approvalComment = ({ rev, login, file = DEFAULT_PRD, tasks = null }) =>
@@ -208,7 +212,10 @@ export const approvalComment = ({ rev, login, file = DEFAULT_PRD, tasks = null }
  * from repo members (parseMarkers drops other comments). → { approved, by, at, revs: approved revisions seen }.
  */
 export function approvalFor(comments = [], rev, mayApprove = () => true) {
-  const marks = parseMarkers(comments).filter((m) => m.kind === 'prd-approved' && m.rev && m.by && mayApprove(m.by));
+  // Only a comment that starts with the marker is an approval: a quoted example or a code block in a longer comment
+  // (a captain explaining how approval works) is not.
+  const records = comments.filter((c) => /^\s*<!-- crew:prd-approved rev=[0-9a-f]{12,64} -->/.test(String(c.body ?? '')));
+  const marks = parseMarkers(records).filter((m) => m.kind === 'prd-approved' && m.rev && m.by && mayApprove(m.by));
   const hit = marks.filter((m) => m.rev === rev).pop();
   return { approved: !!hit, by: hit?.by ?? null, at: hit?.createdAt ?? null, revs: [...new Set(marks.map((m) => m.rev))] };
 }

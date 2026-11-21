@@ -13,14 +13,16 @@ import { ok, fail } from '../core/output.js';
 import { gh, ghJson } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
 import { listIssues, PAUSE_LABEL, labelValue, currentOwner } from '../core/issues.js';
+import { QUESTION_LABEL } from '../core/questions.js';
+import { IDEA_LABEL } from '../core/ideas.js';
 import { boardModel, actionArgs, renderPage } from '../core/board.js';
 import { taskView, teamView, inboxView, discoveryView, prsView, activityView, pauseView, planView } from '../core/board-views.js';
 import { readEvents, metricsRoot } from '../core/metrics.js';
 import { RESEARCH_LABEL, DISCOVERY_DOC, DECISIONS_DOC } from '../core/discovery.js';
-import { DEFAULT_PRD, PRD_APPROVAL_LABEL, PRD_APPROVAL_TITLE, prdRevision, approvalFor, approvalComment, parsePrd } from '../core/prd.js';
+import { DEFAULT_PRD, PRD_APPROVAL_LABEL, PRD_APPROVAL_TITLE, prdRevision, approvalFor, approvalComment, parsePrd, shortRev, MAX_PRD_CHARS } from '../core/prd.js';
+import { mainCaptain } from './kickoff.js';
 import { hasCaptainPowers } from '../core/captain.js';
-import { openQuestions, teamOf, claimCommentsOf } from './digest.js';
-import { loadIdeas } from './idea.js';
+import { teamOf, claimCommentsOf } from './digest.js';
 import captainCmds, { loadActingCaptain } from './captain.js';
 import { loadDiscoveryStatus, mainDoc } from './discover.js';
 import { lastBranchCommitAt } from './task.js';
@@ -43,10 +45,11 @@ export function githubSource(root) {
     prs: () => listOf(j, ['pr', 'list', '--state', 'open', '--limit', '50', '--json', PR_FIELDS], 'open pull requests'),
     members: () => (gh(['api', 'repos/{owner}/{repo}/collaborators', '--paginate', '--jq', '.[].login'], { cwd: root, allowFail: true }).stdout || '').split('\n').filter(Boolean),
     edit: (args) => gh(args, { cwd: root, allowFail: true }),
-    questions: () => openQuestions(root),
+    questions: () => listOf(j, ['issue', 'list', '--state', 'open', '--label', QUESTION_LABEL, '--limit', '100', '--json', 'number,title,body,labels,assignees,createdAt'], 'questions'),
     team: () => teamOf(root),
     claimComments: () => claimCommentsOf(root),
-    ideas: () => loadIdeas(root),
+    ideas: () => listOf(j, ['issue', 'list', '--state', 'open', '--label', IDEA_LABEL, '--limit', '100', '--json', 'number,title,body,labels,createdAt'], 'ideas').sort((a, b) => a.number - b.number),
+    isAdmin: (login) => (gh(['api', `repos/{owner}/{repo}/collaborators/${login}/permission`, '--jq', '.permission'], { cwd: root, allowFail: true }).stdout || '').trim() === 'admin',
     login: () => (gh(['api', 'user', '--jq', '.login'], { cwd: root, allowFail: true }).stdout || '').trim() || null,
     acting: (config) => loadActingCaptain(root, config),
     issue: (n) => j(['issue', 'view', String(n), '--json', 'number,title,body,labels,assignees,comments,state,stateReason,createdAt,updatedAt']),
@@ -133,14 +136,15 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
     const human_questions = questions.filter((q) => (q.labels ?? []).some((l) => l.name === 'needs-human')).length;
     return { ...model, paused: pauseView(issues), login: getLogin(), human_questions };
   };
-  const mayApprove = (who) => hasCaptainPowers(who, config, config.captain ? source.acting?.(config) ?? null : null);
+  // the captain (as main's crew.config.json says, see run) or the acting captain; with no captain, a repo admin
+  const mayApprove = (who) => (config.captain ? hasCaptainPowers(who, config, source.acting?.(config) ?? null) : !!who && !!source.isAdmin?.(who));
   const plan = () => {
     const text = source.prdLocal?.(DEFAULT_PRD) ?? null;
     if (text === null) return null;
     const rev = prdRevision(text);
     const rec = approvalFor((source.approvals?.() ?? []).flatMap((i) => i.comments ?? []), rev, mayApprove);
     const onMain = source.doc?.(DEFAULT_PRD) || null;
-    return planView({ text, rev, approval: rec, mainRev: onMain ? prdRevision(onMain) : null, tasks: safeCount(text), file: DEFAULT_PRD });
+    return planView({ text, rev, approval: rec, mainRev: onMain ? prdRevision(onMain) : null, tasks: safeCount(text), file: DEFAULT_PRD, max: MAX_PRD_CHARS });
   };
   const views = {
     '/api/board': () => board(),
@@ -184,11 +188,10 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
       const open = pauseView(source.issues());
       if (!open.length) return { ok: true, noop: true };
       // Resume ends the stops the person saw: one opened after the page loaded may have a reason they have not read.
-      if (Array.isArray(body.issues)) {
-        const seen = body.issues.map(Number);
-        const unseen = open.filter((p) => !seen.includes(p.number));
-        if (unseen.length) return { http: 409, error: `a new stop was opened after this page loaded (${unseen.map((p) => `#${p.number} ${p.title}`).join('; ')}): read it, then press Resume again` };
-      }
+      if (!Array.isArray(body.issues) || !body.issues.every((x) => Number.isInteger(x) && x > 0)) return { http: 400, error: 'resume needs the stops the page showed (issues: [numbers])' };
+      const seen = body.issues;
+      const unseen = open.filter((p) => !seen.includes(p.number));
+      if (unseen.length) return { http: 409, error: `a new stop was opened after this page loaded (${unseen.map((p) => `#${p.number} ${p.title}`).join('; ')}): read it, then press Resume again` };
       const who = freshLogin();
       for (const p of open) {
         const r = source.edit(['issue', 'close', String(p.number), '--comment', `Resumed from crew board${who ? ` by @${who}` : ''}.`]);
@@ -212,8 +215,9 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
       if (!mayApprove(who)) return { http: 403, error: `only the captain${config.captain ? ` @${config.captain}` : ''} (or the acting captain) approves the plan, and gh is logged in as @${who}` };
       const text = source.prdLocal?.(DEFAULT_PRD) ?? null;
       if (text === null) return { error: `${DEFAULT_PRD} is not in this folder` };
+      if (text.length > MAX_PRD_CHARS) return { error: `${DEFAULT_PRD} is longer than the board shows (${MAX_PRD_CHARS} characters): nobody can read all of it here; shorten it` };
       const rev = prdRevision(text);
-      if (String(body.rev ?? '') !== rev) return { http: 409, error: `${DEFAULT_PRD} changed after this page loaded (now revision ${rev}): read it again, then approve` };
+      if (String(body.rev ?? '') !== rev) return { http: 409, error: `${DEFAULT_PRD} changed after this page loaded (now revision ${shortRev(rev)}): read it again, then approve` };
       const list = source.approvals?.() ?? [];
       if (approvalFor(list.flatMap((i) => i.comments ?? []), rev, mayApprove).approved) return { ok: true, noop: true };
       let issue = list[0]?.number;
@@ -225,7 +229,7 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
         if (!Number.isInteger(issue)) return { error: 'gh created the approvals issue but did not say its number: press Approve again' };
       }
       const r = source.edit(['issue', 'comment', String(issue), '--body', approvalComment({ rev, login: who, file: DEFAULT_PRD, tasks: safeCount(text) })]);
-      return r.code === 0 ? { ok: true, message: `plan revision ${rev} approved: crew kickoff --apply may create the tasks` } : { error: firstLine(r) };
+      return r.code === 0 ? { ok: true, message: `plan revision ${shortRev(rev)} approved: crew kickoff --apply may create the tasks` } : { error: firstLine(r) };
     },
   };
   function act(res, body) {
@@ -237,18 +241,25 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
     const n = Number(body.issue);
     const current = source.issues().find((i) => i.number === n)
       ?? (body.op === 'answer' ? (source.questions?.() ?? []).find((i) => i.number === n) : undefined);
-    // Release what the person saw: if another agent took the task while they were deciding, do not free that one.
-    if (body.op === 'release' && current && body.expect !== undefined) {
-      const holder = currentOwner(source.issue?.(n)?.comments ?? [])?.agent ?? '';
-      if (String(body.expect) !== holder) {
-        return json(res, 409, { error: holder ? `#${n} is held by ${holder} now, not ${body.expect || 'nobody'}: reload and decide again` : `#${n} is no longer held by ${body.expect}: reload` });
-      }
+    // Release what the person saw: the page sends the lease it showed (agent and claim time). A new lease, even by the
+    // same agent, is not released. A lease already freed by an earlier press whose label edit failed is completed.
+    let labelsOnly = false;
+    if (body.op === 'release' && current) {
+      if (typeof body.expect !== 'string') return json(res, 400, { error: 'release needs the lease the page showed (expect)' });
+      const owner = currentOwner(source.issue?.(n)?.comments ?? []);
+      const holder = leaseId(owner);
+      if (holder && body.expect !== holder) return json(res, 409, { error: `#${n} is held by ${owner.agent} under a newer lease now: reload and decide again` });
+      labelsOnly = !holder && body.expect !== '';
     }
     const needsLogin = ['idea', 'release', 'answer'].includes(body.op);
     const a = actionArgs(body, current, { members: body.op === 'assign' ? freshMembers() : getMembers(), login: needsLogin ? freshLogin() : null, acting: body.op === 'idea' ? source.acting?.(config) ?? null : null, config });
     if (a.error) return json(res, 400, { error: a.error });
     if (a.noop) return json(res, 200, { ok: true, noop: true });
     const say = (r) => firstLine(r);
+    if (labelsOnly) {
+      const r = source.edit(a.args);
+      return r.code === 0 ? json(res, 200, { ok: true, message: 'lease was already released; the task is back in Ready now' }) : json(res, 502, { error: `the labels did not change (${say(r)}): press it again` });
+    }
     if (a.commentFirst) {
       // The release marker goes first: the task must never show as Ready while the old claim still holds it.
       const c = source.edit(['issue', 'comment', String(current.number), '--body', a.comment]);
@@ -320,6 +331,9 @@ export function boardHandler({ source: rawSource, token, repo, config = {}, allo
   };
 }
 
+/** One lease: who holds it and since when (a new claim by the same agent is a new lease). */
+export const leaseId = (owner) => (owner ? `${owner.agent ?? '?'}@${owner.createdAt ?? owner.at ?? ''}` : '');
+
 function safeCount(text) {
   try { return parsePrd(text).tasks.length; } catch { return null; }
 }
@@ -330,7 +344,10 @@ export default {
   agent: false,
   args: [{ name: 'port', type: 'number', description: 'port on 127.0.0.1 (default 4747)' }],
   async run({ port = 4747 } = {}) {
-    const { config, root } = loadConfig();
+    const loaded = loadConfig();
+    const { root } = loaded;
+    // who approves the plan comes from main, not from this checkout (anyone can edit a local file)
+    const config = { ...loaded.config, captain: mainCaptain(root, loaded.config) };
     const repo = ghJson(['repo', 'view', '--json', 'nameWithOwner'], { cwd: root, allowFail: true })?.nameWithOwner;
     if (!repo) return fail('no_repo', 'Not inside a GitHub repo that gh can see', { retry: 'run crew board in the project folder; gh auth status' });
     const token = randomBytes(16).toString('hex');

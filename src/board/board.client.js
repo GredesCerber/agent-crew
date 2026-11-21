@@ -98,12 +98,12 @@ function ask({ title, text, ok, danger, placeholder }) {
  * Release a lease. holder: the agent the person saw; the server refuses if someone else holds it by now.
  * Without it (an alert line) the page asks the server who holds the task first, and names them in the question.
  */
-async function releaseTask(n, holder) {
-  if (holder === undefined) {
-    try { holder = ((await api('/api/task?n=' + n)).owner || {}).agent || ''; } catch (x) { toast(x.message, true); return; }
+async function releaseTask(n, lease) {
+  if (lease === undefined) {
+    try { const o = (await api('/api/task?n=' + n)).owner; lease = o ? { id: o.lease_id, agent: o.agent } : null; } catch (x) { toast(x.message, true); return; }
   }
-  const why = await ask({ title: 'Release the lease on #' + n + '?', text: (holder ? 'Held by ' + holder + '. ' : '') + 'The agent loses the task: it goes back to Ready and anyone may take it. Do this when the agent is gone or went the wrong way.', ok: 'Release lease', danger: true });
-  if (why !== null) act({ issue: n, op: 'release', reason: why, expect: holder });
+  const why = await ask({ title: 'Release the lease on #' + n + '?', text: (lease ? 'Held by ' + lease.agent + '. ' : '') + 'The agent loses the task: it goes back to Ready and anyone may take it. Do this when the agent is gone or went the wrong way.', ok: 'Release lease', danger: true });
+  if (why !== null) act({ issue: n, op: 'release', reason: why, expect: lease ? lease.id : '' });
 }
 function panel(title, ...kids) { return e('section', { class: 'panel' }, e('h2', {}, title), ...kids); }
 function panelH(title, extra, ...kids) { return e('section', { class: 'panel' }, e('div', { class: 'panel-h' }, e('h2', {}, title), extra || ''), ...kids); }
@@ -342,7 +342,7 @@ async function showTask(n, quiet) {
   if (ST.includes(t.status)) foot.append(e('label', { class: 'f' }, 'Status', sel('Status', ST.map((x) => [x, LABEL[x]]), t.status, (v) => act({ issue: t.number, op: 'status', value: v }))));
   foot.append(e('label', { class: 'f' }, 'Priority', sel('Priority', PR.map((x) => [x, x]), t.priority, (v) => act({ issue: t.number, op: 'priority', value: v }))));
   foot.append(e('span', { class: 'grow' }));
-  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => releaseTask(t.number, (t.owner && t.owner.agent) || '') } }, icon('lock'), 'Release lease'));
+  if (t.status === 'claimed' || t.status === 'blocked') foot.append(e('button', { class: 'btn danger', on: { click: () => releaseTask(t.number, t.owner ? { id: t.owner.lease_id, agent: t.owner.agent } : null) } }, icon('lock'), 'Release lease'));
   foot.append(e('a', { class: 'btn', href: gh('issues', t.number), target: '_blank', rel: 'noopener' }, icon('ext'), 'Open on GitHub'));
 }
 function closeTask() {
@@ -478,15 +478,16 @@ function planPanel(p) {
   const state = p.approved
     ? badge('good', 'ok', 'approved by @' + p.approved_by + (p.approved_at ? ' · ' + hhmm(p.approved_at) : ''))
     : p.changed_since ? badge('warn', 'alert', 'changed since the last approval') : badge('warn', 'clock', 'not approved');
-  const head = e('div', { class: 'row' }, e('span', { class: 'ic' }, icon('flag')), e('div', { class: 'grow' }, e('b', {}, p.file), e('div', { class: 'hint mono' }, 'revision ' + p.rev + (p.tasks != null ? ' · ' + p.tasks + ' tasks' : ''))), state);
+  const head = e('div', { class: 'row' }, e('span', { class: 'ic' }, icon('flag')), e('div', { class: 'grow' }, e('b', {}, p.file), e('div', { class: 'hint mono', title: p.rev }, 'revision ' + p.rev.slice(0, 12) + (p.tasks != null ? ' · ' + p.tasks + ' tasks' : ''))), state);
   const notes = [];
   if (p.same_as_main === false) notes.push(e('div', { class: 'hint' }, 'This folder has a different PRD than main (main: ' + (p.main_rev || 'none') + '). You approve the text below; crew kickoff --apply publishes it.'));
-  const body = e('details', { style: 'margin-top:10px' }, e('summary', {}, 'Read the plan'), e('pre', { class: 'body' }, p.text || '(empty)'));
+  const body = p.too_long ? e('div', { class: 'hint' }, 'The PRD is too long to show here, so it cannot be approved here: shorten it.') : e('details', { style: 'margin-top:10px' }, e('summary', {}, 'Read the whole plan (exactly the text that gets approved)'), e('pre', { class: 'body' }, p.text || '(empty)'));
   const acts = e('div', { class: 'row', style: 'margin-top:12px' });
   if (p.approved) acts.append(e('span', { class: 'hint' }, 'The captain runs crew kickoff --apply to create the tasks.'), copyBox('crew kickoff --apply'));
+  else if (p.too_long) acts.append(e('span', { class: 'hint' }, 'Shorten docs/prd.md to approve it.'));
   else if (!isCaptain) acts.append(e('span', { class: 'hint' }, 'Only the captain approves the plan' + (me ? ' (you are @' + me + ')' : '') + '.'));
   else acts.append(e('button', { class: 'btn primary', on: { click: async () => {
-    const ok = await ask({ title: 'Approve revision ' + p.rev + '?', text: 'Agents will turn exactly this text into tasks. Any later edit needs a new approval. Agents never approve a plan themselves.', ok: 'Approve the plan', placeholder: 'Optional note (not posted)' });
+    const ok = await ask({ title: 'Approve revision ' + p.rev.slice(0, 12) + '?', text: 'Agents will turn exactly this text into tasks. Any later edit needs a new approval. Agents never approve a plan themselves.', ok: 'Approve the plan', placeholder: 'Optional note (not posted)' });
     if (ok !== null) act({ op: 'approve-plan', rev: p.rev });
   } } }, icon('ok'), 'Approve the plan'), e('span', { class: 'hint' }, 'Read it first: this is what agents will build.'));
   return panelH('The plan', '', head, ...notes, body, acts);

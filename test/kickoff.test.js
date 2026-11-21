@@ -65,7 +65,7 @@ const withApprovals = (gh, comments) => (args, opts) => (isApprovals(args) ? { c
 const deps = (root, extra = {}) => {
   const text = readFileSync(join(root, 'docs', 'prd.md'), 'utf8');
   const gh = extra.gh && text.startsWith(APPROVED) ? withApprovals(extra.gh, [approvalBy('alice', prdRevision(text))]) : extra.gh;
-  return { root, areas: DEFAULT_CONFIG.areas, ...extra, gh };
+  return { root, areas: DEFAULT_CONFIG.areas, isAdmin: () => true, ...extra, gh };
 };
 
 test('kickoff dry-run: a plan without approval, creates nothing', async () => {
@@ -101,7 +101,7 @@ test('approval: only a recorded approval of this exact revision by the captain c
   const rev = prdRevision(text);
   const run = async (prd, comments, extra = {}) => {
     const f = fakeGh();
-    const me = extra.acting?.login ?? 'alice'; // gh api user: who runs kickoff
+    const me = extra.me ?? extra.acting?.login ?? 'alice'; // gh api user: who runs kickoff
     const gh = (args, o) => (args[0] === 'api' && args[1] === 'user' ? { code: 0, stdout: me, stderr: '' } : f.gh(args, o));
     const r = await runKickoff({ apply: true }, { root: project(prd), areas: DEFAULT_CONFIG.areas, gh: withApprovals(gh, comments), sleep: async () => {}, captain: 'alice', acting: null, branch: 'main', phase: 'build', ...extra });
     return { r, f };
@@ -116,7 +116,13 @@ test('approval: only a recorded approval of this exact revision by the captain c
   // an edit after the approval needs a new one
   const edited = await run(`${text}\nOne more line.`, [approvalBy('alice', rev)]);
   assert.equal(edited.r.error.code, 'plan_not_approved');
-  assert.ok(edited.r.error.cause_hint.includes(`changed after it was approved (approved: ${rev}`), edited.r.error.cause_hint);
+  assert.ok(edited.r.error.cause_hint.includes(`changed after it was approved (approved: ${rev.slice(0, 12)}`), edited.r.error.cause_hint);
+  // a marker inside a longer comment (an example, a quote) is not an approval
+  const quoted = await run(text, [{ ...approvalBy('alice', rev), body: `How to approve:\n\n    <!-- crew:prd-approved rev=${rev} -->` }]);
+  assert.equal(quoted.r.error.code, 'plan_not_approved');
+  // a member who is not the captain is told so first, not asked to approve
+  const member = await run(text, [], { acting: null, me: 'bob' });
+  assert.equal(member.r.error.code, 'not_captain');
   // a member who is not the captain, or a marker in someone's comment that names alice, does not count
   const bob = await run(text, [approvalBy('bob', rev), { ...approvalBy('bob', rev), body: `<!-- crew:prd-approved rev=${rev} by=alice -->` }]);
   assert.equal(bob.r.error.code, 'plan_not_approved');
@@ -130,6 +136,17 @@ test('approval: only a recorded approval of this exact revision by the captain c
   const good = await run(`<!-- crew:prd status: approved by: alice at: x -->\n${text}`, [approvalBy('alice', rev)]);
   assert.equal(good.r.status, 'success', JSON.stringify(good.r));
   assert.equal(good.f.creates().length, 7);
+  // the caller is checked before the approval: a member gets not_captain
+  const notCap = await run(text, [approvalBy('alice', rev)], { me: 'bob' });
+  assert.equal(notCap.r.error.code, 'not_captain');
+  // without a captain, only a repo admin approves
+  const noCap = await run(text, [approvalBy('bob', rev)], { captain: null, isAdmin: (l) => l === 'root' });
+  assert.equal(noCap.r.error.code, 'plan_not_approved');
+  const admin = await run(text, [approvalBy('root', rev)], { captain: null, isAdmin: (l) => l === 'root' });
+  assert.equal(admin.r.status, 'success', JSON.stringify(admin.r));
+  // --apply takes only docs/prd.md (the file discovery checks and kickoff publishes)
+  const other = await runKickoff({ apply: true, file: 'docs/other.md' }, { root: project(text), areas: DEFAULT_CONFIG.areas, gh: () => ({ code: 0, stdout: '[]' }) });
+  assert.equal(other.error.code, 'bad_input');
 });
 
 test('kickoff --apply: order, labels, bodies with "After #N", the epic last, a pause between creates', async () => {

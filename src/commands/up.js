@@ -7,6 +7,7 @@
 // Every step first checks whether it is already done, so a re-run continues from the point of failure.
 // What needs a human (account sign-in, CI access to the package) the command does not do — it returns it in human_steps.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { HARNESS_ROOT } from '../core/config.js';
 import { join, resolve } from 'node:path';
 import { ok, warn, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
@@ -142,6 +143,13 @@ function checkHosts(j, sh, hosts) {
   return hosts.filter((h) => !missing.includes(h));
 }
 
+/** --hosts: only hosts crew has an adapter for (the names also reach a command line on Windows, so nothing else). */
+export function hostList(value = 'claude,codex') {
+  const known = readdirSync(join(HARNESS_ROOT, 'adapters'));
+  const all = String(value ?? 'claude,codex').split(',').map((h) => h.trim()).filter(Boolean);
+  return { hosts: all.filter((h) => known.includes(h)), bad: all.filter((h) => !known.includes(h)), known };
+}
+
 const PAID_PLANS = ['pro', 'team', 'business', 'enterprise', 'business_plus', 'enterprise_cloud'];
 
 /**
@@ -157,16 +165,27 @@ export function preflight(o, sh, me) {
   const view = sh('gh', ['repo', 'view', repo, '--json', 'visibility,viewerPermission'], { allowFail: true });
   let existing = null;
   try { existing = view.code === 0 ? JSON.parse(view.stdout || 'null') : null; } catch { existing = null; }
+  const absent = view.code !== 0 && /Could not resolve to a Repository|Not Found|HTTP 404/i.test(`${view.stderr}\n${view.stdout}`);
+  if (!existing && !absent) warnings.push(`could not check whether ${repo} exists (${firstLine(view) || 'no answer'}): crew up will find out when it creates it`);
   const mine = owner.toLowerCase() === me.login.toLowerCase();
+  const visibility = existing?.visibility ? String(existing.visibility).toLowerCase() : o.public ? 'public' : 'private';
   if (existing) {
     if (existing.viewerPermission && existing.viewerPermission !== 'ADMIN') {
       blockers.push(`you are ${existing.viewerPermission} on ${repo}: main protection, labels and invitations need admin rights (the repo owner runs crew up, or gives you admin)`);
     }
-  } else if (!mine) {
-    const m = sh('gh', ['api', `orgs/${owner}/memberships/${me.login}`, '--jq', '.role'], { allowFail: true });
-    if (m.code !== 0) blockers.push(`${repo} does not exist and you cannot create repos under ${owner}: it is not you (${me.login}) and not an organization you belong to — check --repo`);
+  } else if (absent && !mine) {
+    // membership alone is not enough: an organization can forbid members to create repos of this visibility
+    const m = sh('gh', ['api', `orgs/${owner}/memberships/${me.login}`], { allowFail: true });
+    let ms = null;
+    try { ms = m.code === 0 ? JSON.parse(m.stdout || 'null') : null; } catch { ms = null; }
+    if (!ms || (ms.state && ms.state !== 'active')) blockers.push(`${repo} does not exist and you cannot create repos under ${owner}: it is not you (${me.login}) and not an organization you are an active member of — check --repo`);
+    else if (ms.role !== 'admin') {
+      const org = sh('gh', ['api', `orgs/${owner}`, '--jq', `.members_can_create_${visibility}_repositories`], { allowFail: true });
+      const can = org.code === 0 ? String(org.stdout ?? '').trim() : '';
+      if (can === 'false') blockers.push(`${owner} does not let members create ${visibility} repos: an owner of ${owner} creates ${repo}, or changes that setting`);
+      else if (can !== 'true') warnings.push(`could not read whether ${owner} lets members create ${visibility} repos: crew up will find out when it creates ${repo}`);
+    }
   }
-  const visibility = existing?.visibility ? String(existing.visibility).toLowerCase() : o.public ? 'public' : 'private';
   let protection = 'available';
   let plan = null;
   if (visibility !== 'public') {
@@ -176,14 +195,14 @@ export function preflight(o, sh, me) {
   }
   const why = `${visibility} repo${plan ? ` on the ${plan} plan` : ''}`;
   if (protection === 'unavailable') {
-    const msg = `main protection is unavailable (${why}): PRs could merge without review or checks. Use --public, or a paid GitHub plan, or pass --no_protection to set up anyway and accept that`;
-    if (existing || o.no_protection) warnings.push(msg);
+    const msg = `main protection is unavailable (${why}): PRs could merge without review or checks. Use ${existing ? 'a public repo' : '--public'}, or a paid GitHub plan, or pass --no_protection to set up anyway and accept that`;
+    if (o.no_protection) warnings.push(msg);
     else blockers.push(msg);
   } else if (protection === 'unverified') {
     warnings.push(`could not read the GitHub plan of ${owner}: main protection on a private repo needs a paid plan; crew up will check again after it tries`);
   }
   if (tool(sh, 'crew', ['--version']).code !== 0) warnings.push('crew is not on PATH: the agents\' MCP config will not start (npm install -g @gredescerber/agent-crew)');
-  const hosts = String(o.hosts ?? 'claude,codex').split(',').map((h) => h.trim()).filter(Boolean);
+  const hosts = hostList(o.hosts).hosts;
   const found = hosts.filter((h) => tool(sh, h, ['--version']).code === 0);
   if (!found.length) warnings.push(`no agent found (${hosts.join(', ')}): install at least one before the team starts`);
   return { blockers, warnings, facts: { repo, exists: !!existing, visibility, plan, protection, agents: found } };
@@ -199,6 +218,10 @@ async function lead(o, sh) {
     if (o[k] && !Number.isFinite(Date.parse(o[k]))) return fail('bad_input', `--${k}: an ISO date is required, e.g. 2026-11-10T10:00:00+03:00`, { retry: 'crew up ... --start <ISO> --end <ISO>' });
   }
   if (!!o.start !== !!o.end) return fail('bad_input', '--start and --end must be given together', { retry: 'crew up ... --start <ISO> --end <ISO>' });
+  if (o.hosts !== undefined) {
+    const h = hostList(o.hosts);
+    if (h.bad.length || !h.hosts.length) return fail('bad_input', `--hosts: unknown host ${h.bad.join(', ') || '(none)'}`, { retry: `crew up ... --hosts ${h.known.join(',')}` });
+  }
   // The captain handover rule is the repo owner's choice (asked before crew up, see docs/AGENT-SETUP.md).
   // solo: one person, nobody to hand the captain role to
   const handover = policyFrom({ mode: o.solo ? 'off' : o.handover ?? (o.deputies ? 'deputies' : 'off'), deputies: o.solo ? '' : o.deputies, fallback_hours: o.solo ? 0 : o.fallback_hours });
@@ -305,7 +328,7 @@ async function lead(o, sh) {
   if (others.length) j.human.push(`for the members (${others.join(', ')}): send their agent the member message from docs/AGENT-SETUP.md — crew up --join ${repo} accepts the invitation by itself`);
 
   // 7. Main protection, labels, CREW_HARNESS
-  const g = await github.run({ repo, harness, apply: true, cwd: root }, { run: sh });
+  const g = await github.run({ repo, harness, apply: true, cwd: root, no_protection: !!o.no_protection || pre.facts.protection === 'unavailable' }, { run: sh });
   if (g.status === 'error') return stop(j, g.error.code, `crew github setup: ${g.summary}`, g.error);
   j.add('github-setup', 'done', g.summary);
   // A private repo on the free plan: there is no main protection, so the checks affect nothing.

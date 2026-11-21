@@ -204,11 +204,11 @@ test('HTTP: screen routes and team-wide actions (pause, resume, handoff)', async
   const board = await (await get('/api/board')).json();
   assert.deepEqual(board.paused.map((p) => p.number), [99]);
   assert.equal(board.login, 'alex');
-  assert.equal((await post({ op: 'resume' })).status, 200);
+  assert.equal((await post({ op: 'resume', issues: [99] })).status, 200);
   assert.deepEqual(edits.at(-1).slice(0, 3), ['issue', 'close', '99']);
   assert.equal((await post({ op: 'handoff', value: 'bob', hours: 4 })).status, 200);
   assert.deepEqual(captainCalls, [['captain handoff', { to: 'bob', hours: 4 }, 'alex']]);
-  assert.equal((await post({ op: 'release', issue: 7 })).status, 200);
+  assert.equal((await post({ op: 'release', issue: 7, expect: '' })).status, 200);
   assert.ok(edits.some((a) => a[0] === 'issue' && a[1] === 'comment' && a[2] === '7' && /crew:release agent=crew-board@alex/.test(a[4])), 'the release marker is posted');
   assert.equal((await post({ op: 'toString' })).status, 400, 'prototype names are not actions');
 });

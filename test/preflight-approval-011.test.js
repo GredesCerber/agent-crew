@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import up, { preflight } from '../src/commands/up.js';
-import { mergeProtection, planSetup } from '../src/commands/github.js';
+import github, { mergeProtection, planSetup, currentProtection } from '../src/commands/github.js';
 import { boardHandler, cachedSource } from '../src/commands/board.js';
 import { prdRevision, approvalComment, approvalFor, PRD_APPROVAL_LABEL } from '../src/core/prd.js';
 import { isDoneTask, activityView } from '../src/core/board-views.js';
@@ -57,11 +57,20 @@ test('preflight: rights and owner', () => {
   assert.match(notAdmin.blockers[0], /you are WRITE on acme\/app: .*admin/);
   const foreign = preflight({ repo: 'bob/app', public: true }, ghStub().sh, me);
   assert.match(foreign.blockers[0], /cannot create repos under bob/);
-  const org = preflight({ repo: 'acme/app', public: true }, ghStub({ org: OKR('member') }).sh, me);
+  const org = preflight({ repo: 'acme/app', public: true }, ghStub({ org: OKR('{"state":"active","role":"admin"}') }).sh, me);
   assert.equal(org.blockers.length, 0);
-  // an existing private repo on the free plan: only a warning (it was set up before; crew up reports the manual step)
+  // a member of an organization that does not let members create repos of this kind
+  const member = (can) => (cmd, args = []) => (cmd === 'gh' && args[1] === 'orgs/acme' && args.includes('.members_can_create_public_repositories') ? can : ghStub({ org: OKR('{"state":"active","role":"member"}') }).sh(cmd, args));
+  assert.match(preflight({ repo: 'acme/app', public: true }, member(OKR('false')), me).blockers[0], /does not let members create public repos/);
+  assert.equal(preflight({ repo: 'acme/app', public: true }, member(OKR('true')), me).blockers.length, 0);
+  assert.ok(preflight({ repo: 'acme/app', public: true }, member(NO('HTTP 403')), me).warnings.some((w) => /could not read whether acme lets members/.test(w)));
+  assert.match(preflight({ repo: 'acme/app', public: true }, ghStub({ org: OKR('{"state":"pending","role":"member"}') }).sh, me).blockers[0], /active member/);
+  // a lookup that failed is not "the repo does not exist"
+  const flaky = preflight({ repo: 'alice/x', public: true }, ghStub({ view: NO('HTTP 502: Bad Gateway') }).sh, me);
+  assert.ok(flaky.warnings.some((w) => /could not check whether alice\/x exists/.test(w)));
+  // an existing private repo on the free plan needs the same explicit consent
   const old = preflight({ repo: 'alice/old' }, ghStub({ view: OKR(JSON.stringify({ visibility: 'PRIVATE', viewerPermission: 'ADMIN' })) }).sh, me);
-  assert.equal(old.blockers.length, 0);
+  assert.match(old.blockers[0], /main protection is unavailable/);
   const noAgents = preflight({ repo: 'alice/x', public: true }, ghStub({ tools: false }).sh, me);
   assert.ok(noAgents.warnings.some((w) => /no agent found/.test(w)));
 });
@@ -116,15 +125,50 @@ test('github setup keeps the rules a repo already has: checks, reviews, flags; w
   };
   const m = mergeProtection(ours, existing);
   assert.deepEqual(m.body.required_status_checks.checks.map((c) => c.context), ['check', 'crew-guard', 'build', 'lint']);
-  assert.deepEqual(m.body.required_status_checks.checks.find((c) => c.context === 'lint'), { context: 'lint' }, 'no app id: any source');
+  assert.deepEqual(m.body.required_status_checks.checks.find((c) => c.context === 'lint'), { context: 'lint', app_id: -1 }, 'no fixed source stays open to any source');
   assert.equal(m.body.required_status_checks.strict, true);
   assert.equal(m.body.required_pull_request_reviews.required_approving_review_count, 2);
   assert.equal(m.body.required_pull_request_reviews.require_code_owner_reviews, true);
   assert.equal(m.body.enforce_admins, true);
   assert.deepEqual(m.body.restrictions, { users: ['ops'], teams: [], apps: [] });
   assert.ok(m.kept.includes('required check build') && m.kept.includes('2 approving review(s) from a person'));
-  assert.match(m.warnings[0], /linear history/);
+  assert.match(m.blockers[0], /linear history/, 'GitHub cannot require linear history with squash and rebase off');
+  // a check with the same name from another app cannot be merged
+  const clash = mergeProtection(ours, { required_status_checks: { checks: [{ context: 'check', app_id: 999 }] } });
+  assert.match(clash.blockers[0], /"check" on main comes from another app/);
+  // who may dismiss reviews, who may bypass, and empty restrictions (only admins push) are kept as they are
+  const rv = mergeProtection(ours, { required_pull_request_reviews: { required_approving_review_count: 0, dismissal_restrictions: { users: [{ login: 'lead' }], teams: [], apps: [] }, bypass_pull_request_allowances: { users: [], teams: [{ slug: 'core' }], apps: [] } }, restrictions: { users: [], teams: [], apps: [] } });
+  assert.deepEqual(rv.body.required_pull_request_reviews.dismissal_restrictions, { users: ['lead'], teams: [], apps: [] });
+  assert.deepEqual(rv.body.required_pull_request_reviews.bypass_pull_request_allowances, { users: [], teams: ['core'], apps: [] });
+  assert.deepEqual(rv.body.restrictions, { users: [], teams: [], apps: [] });
   assert.equal(ours.required_status_checks.checks.length, 2, 'the plan itself is not changed in place');
+});
+
+test('github setup: an unreadable protection is not "none"; nothing is written then', async () => {
+  const st = (r) => currentProtection('a/b', 'main', '.', () => r).state;
+  assert.equal(st(NO('gh: Branch not protected (HTTP 404)')), 'none');
+  assert.equal(st(NO('gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)')), 'unavailable');
+  assert.equal(st(NO('HTTP 502: Bad Gateway')), 'unknown');
+  assert.equal(st(OKR('{"required_status_checks":null}')), 'present');
+  const writes = [];
+  const sh = (cmd, args = []) => {
+    if (args.includes('-X')) writes.push(args);
+    if (args[0] === 'api' && /\/protection$/.test(args[1]) && !args.includes('-X')) return NO('HTTP 502: Bad Gateway');
+    return OKR();
+  };
+  const r = await github.run({ repo: 'a/b', apply: true }, { run: sh });
+  assert.equal(r.error.code, 'protection_conflict');
+  assert.equal(writes.length, 0, 'no settings, labels or protection changed');
+  // a private repo on the free plan: the protection step is left out instead of failing after the other writes
+  const free = [];
+  const shFree = (cmd, args = []) => {
+    if (args.includes('-X')) free.push(args[3]);
+    if (args[0] === 'api' && /\/protection$/.test(args[1]) && !args.includes('-X')) return NO('Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)');
+    return OKR();
+  };
+  const ok = await github.run({ repo: 'a/b', apply: true }, { run: shFree });
+  assert.equal(ok.status, 'warning', JSON.stringify(ok));
+  assert.ok(!free.some((p) => /\/protection$/.test(p)), 'no protection PUT');
 });
 
 test('approvals: only the comment author counts, and only for the exact revision', () => {
@@ -136,6 +180,8 @@ test('approvals: only the comment author counts, and only for the exact revision
   assert.equal(approvalFor([c('cap', approvalComment({ rev, login: 'cap' }), 'NONE')], rev, cap).approved, false);
   const other = approvalFor([c('cap', approvalComment({ rev: 'aaaaaaaaaaaa', login: 'cap' }))], rev, cap);
   assert.deepEqual([other.approved, other.revs], [false, ['aaaaaaaaaaaa']]);
+  assert.equal(approvalFor([c('cap', `see:\n<!-- crew:prd-approved rev=${rev} -->`)], rev, cap).approved, false, 'only a comment that starts with the marker');
+  assert.equal(rev.length, 64, 'the full sha256');
   assert.equal(prdRevision('a\r\nb'), prdRevision('a\nb'));
   assert.equal(prdRevision('<!-- crew:prd status: approved by: cap at: x -->\na'), prdRevision('a'));
   assert.notEqual(prdRevision('a'), prdRevision('a.'));
@@ -211,21 +257,31 @@ test('crew board review fixes: page key, stale controls, fresh login, release or
   // the page itself needs the key
   assert.equal((await fetch(`http://127.0.0.1:${b.port}/`)).status, 403);
   // release what the person saw: someone else holds it now
-  const stale = await b.post({ op: 'release', issue: 7, expect: 'claude@a' });
-  assert.equal(stale.status, 409);
-  assert.match((await stale.json()).error, /held by codex@b now/);
+  const lease = (await (await b.get('/api/task?n=7')).json()).owner.lease_id;
+  assert.equal((await b.post({ op: 'release', issue: 7 })).status, 400, 'the lease the page showed is required');
+  const stale = await b.post({ op: 'release', issue: 7, expect: 'codex@b@2026-01-01T00:00:00Z' });
+  assert.equal(stale.status, 409, 'the same agent under a newer lease is not released');
+  assert.match((await stale.json()).error, /held by codex@b under a newer lease/);
   // the marker goes first; if it cannot be posted, nothing changes
   state.fail = (args) => (args[1] === 'comment' ? NO('HTTP 502') : null);
-  const noNote = await b.post({ op: 'release', issue: 7, expect: 'codex@b' });
+  const noNote = await b.post({ op: 'release', issue: 7, expect: lease });
   assert.equal(noNote.status, 502);
   assert.match((await noNote.json()).error, /nothing changed/);
   assert.ok(!b.edits.some((a) => a[1] === 'edit'), 'labels untouched');
   // the note is posted but the labels fail: say so, the release can be pressed again
   state.fail = (args) => (args[1] === 'edit' ? NO('HTTP 502') : null);
-  const half = await b.post({ op: 'release', issue: 7, expect: 'codex@b' });
+  const half = await b.post({ op: 'release', issue: 7, expect: lease });
   assert.match((await half.json()).error, /lease is released, but the labels did not change/);
   state.fail = null;
+  // pressing again finishes it: the lease is already free, only the labels change, no second note
+  state.full[7].comments.push({ body: '<!-- crew:release agent=crew-board@cap -->', author: { login: 'cap' }, authorAssociation: 'OWNER' });
+  const notes = b.edits.filter((a) => a[1] === 'comment').length;
+  const again = await b.post({ op: 'release', issue: 7, expect: lease });
+  assert.equal(again.status, 200, await again.clone().text());
+  assert.equal(b.edits.filter((a) => a[1] === 'comment').length, notes);
+  assert.equal(b.edits.at(-1)[1], 'edit');
   // a pause opened after the page loaded is not closed by Resume
+  assert.equal((await b.post({ op: 'resume' })).status, 400, 'the stops the page showed are required');
   const r = await b.post({ op: 'resume', issues: [] });
   assert.equal(r.status, 409);
   assert.match((await r.json()).error, /#90/);

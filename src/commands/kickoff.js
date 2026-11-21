@@ -9,6 +9,25 @@ import { hasCaptainPowers } from '../core/captain.js';
 import { loadActingCaptain } from './captain.js';
 import { loadDiscoveryStatus, mainDoc } from './discover.js';
 
+/**
+ * The captain as main's crew.config.json says (the local file is the fallback only when there is no main yet).
+ * Who may approve the plan must not come from a checkout anyone can edit.
+ */
+export function mainCaptain(root, localConfig = {}) {
+  try {
+    const text = mainDoc(root, 'crew.config.json');
+    if (text) return JSON.parse(text).captain ?? null;
+  } catch { /* unreadable main config: fall back to the local one */ }
+  return localConfig.captain ?? null;
+}
+
+/** Is login an admin of the repo? Approves the plan in a project with no captain. */
+export function isRepoAdmin(gh, login) {
+  if (!login) return false;
+  const r = gh(['api', `repos/{owner}/{repo}/collaborators/${login}/permission`, '--jq', '.permission']);
+  return r.code === 0 && String(r.stdout ?? '').trim() === 'admin';
+}
+
 /** The phase in main's crew.config.json (the local one is the fallback when main has none or it is unreadable). */
 export function mainPhase(root, localConfig = {}) {
   try {
@@ -20,12 +39,12 @@ export function mainPhase(root, localConfig = {}) {
 import { phaseOf } from '../core/discovery.js';
 import {
   DEFAULT_PRD, parsePrd, lintPrd, planKickoff, prdApproval, renderTaskBody, renderEpicBody, formatLintItem,
-  prdRevision, approvalFor, PRD_APPROVAL_LABEL,
+  prdRevision, approvalFor, PRD_APPROVAL_LABEL, shortRev,
 } from '../core/prd.js';
 
 const FILE_ARG = { name: 'file', type: 'string', description: `path to the PRD from the project root (default ${DEFAULT_PRD})` };
 /** How a person approves (said in every hint): agents never approve a plan, not even after a silence. */
-const HOW_TO_APPROVE = (rev) => `the captain opens crew board → Discovery → Approve the plan (revision ${rev}); or comments <!-- crew:prd-approved rev=${rev} --> on the "${PRD_APPROVAL_LABEL}" issue on GitHub`;
+const HOW_TO_APPROVE = (rev) => `the captain opens crew board → Discovery → Approve the plan (revision ${shortRev(rev)}); or comments a line starting with <!-- crew:prd-approved rev=${rev} --> on the "${PRD_APPROVAL_LABEL}" issue on GitHub`;
 
 /**
  * Approvals recorded on GitHub (comments on the crew:prd-approval issue) for this PRD revision.
@@ -204,17 +223,38 @@ export async function applyKickoff(plan, { parsed, prd = DEFAULT_PRD, gh, sleep 
 export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_discovery = false } = {}, deps = {}) {
   const cfg = deps.root ? null : loadConfig();
   const root = deps.root ?? cfg.root;
+  // One PRD for the whole flow: discovery checks docs/prd.md and kickoff publishes it, so --apply takes no other file.
+  if (apply && file !== DEFAULT_PRD) {
+    return fail('bad_input', `crew kickoff --apply works on ${DEFAULT_PRD} only`, { cause_hint: 'discovery reviews and kickoff publishes that file; another one would create tasks from a plan nobody checked', retry: `move the plan into ${DEFAULT_PRD}, then crew kickoff --apply` });
+  }
   const r = loadPrd({ file, root, areas: deps.areas ?? cfg?.config.areas });
   if (r.result) return r.result;
   const { parsed, lint, text } = r;
   const header = prdApproval(text);
   const rev = prdRevision(text);
   const gh = deps.gh ?? defaultGh(root);
-  // Who may approve: the captain, or the acting captain during a handover (anyone when the project has no captain).
-  const captain = deps.captain !== undefined ? deps.captain : cfg?.config.captain ?? null;
+  // Who may approve: the captain as main says (or the acting captain during a handover); with no captain, a repo admin.
+  const captain = deps.captain !== undefined ? deps.captain : cfg ? mainCaptain(root, cfg.config) : null;
   let actingCache;
   const acting = () => (actingCache !== undefined ? actingCache : (actingCache = deps.acting !== undefined ? deps.acting : cfg && captain ? loadActingCaptain(cfg.root, { ...cfg.config, captain }) : null));
-  const mayApprove = (login) => hasCaptainPowers(login, { captain }, captain ? acting() : null);
+  const admins = new Map();
+  const isAdmin = (login) => (admins.has(login) ? admins.get(login) : admins.set(login, deps.isAdmin ? deps.isAdmin(login) : isRepoAdmin(gh, login)).get(login));
+  const mayApprove = (login) => (captain ? hasCaptainPowers(login, { captain }, acting()) : isAdmin(login));
+  // Who runs it comes first: a member who is not the captain gets not_captain, not an invitation to approve.
+  if (apply && captain) {
+    const who = gh(['api', 'user', '--jq', '.login']);
+    const me = who.code === 0 ? who.stdout.trim() : null;
+    // the acting captain (a handover by the captain, or the automatic fallback) may plan too, if the project allows it
+    const act = acting();
+    if (!hasCaptainPowers(me, { captain }, act)) {
+      return fail('not_captain', `Only the captain ${captain}${act?.login && act.why !== 'captain' ? ` (or @${act.login}, acting now)` : ''} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
+        cause_hint: 'the team has one plan: a second kickoff creates duplicate tasks and a foreign skeleton',
+        retry: 'members: do not plan, work through the crew-workflow cycle (crew task next)',
+        stop_when: 'immediately: tell the human that the captain makes the plan',
+        artifacts: { captain, me },
+      });
+    }
+  }
   // The approval gate comes before any write: a person approved exactly this revision, recorded on GitHub.
   // The header in the file is only a note; an edit after the approval changes the revision and needs a new one.
   const approval = loadApproval(gh, rev, mayApprove);
@@ -222,11 +262,11 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
     const why = approval.error
       ? `could not read the approvals on GitHub (${approval.error}), so the approval cannot be confirmed`
       : approval.revs?.length
-      ? `${file} changed after it was approved (approved: ${approval.revs.join(', ')}; now: ${rev})`
+      ? `${file} changed after it was approved (approved: ${approval.revs.map(shortRev).join(', ')}; now: ${shortRev(rev)})`
       : header.by === 'auto-timeout'
         ? 'the header says approved by auto-timeout: a plan nobody looked at is not approved any more'
-        : header.approved ? `the header says approved, but no approval of revision ${rev} is recorded on GitHub` : `no approval of ${file} revision ${rev} is recorded yet`;
-    return fail('plan_not_approved', `PRD ${file} (revision ${rev}) is not approved — not creating issues`, {
+        : header.approved ? `the header says approved, but no approval of revision ${shortRev(rev)} is recorded on GitHub` : `no approval of ${file} revision ${shortRev(rev)} is recorded yet`;
+    return fail('plan_not_approved', `PRD ${file} (revision ${shortRev(rev)}) is not approved — not creating issues`, {
       cause_hint: why,
       retry: `show the PRD and crew kickoff (dry-run) to the captain; ${HOW_TO_APPROVE(rev)}; then crew kickoff --apply`,
       stop_when: 'until the captain approves: never approve it yourself or write the approval comment, whatever the silence',
@@ -255,26 +295,11 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
     const artifacts = { apply: false, rev, approved: !!approval.approved, approval, plan: planView, map: plan.map, warnings };
     const summary = `Kickoff plan: create ${count('create')}, skip ${count('skip') + count('changed')}${count('orphan') ? `, orphans ${count('orphan')}` : ''} (dry-run)`;
     const next_actions = approval.approved
-      ? [`crew kickoff --apply (revision ${rev} approved by @${approval.by})`]
+      ? [`crew kickoff --apply (revision ${shortRev(rev)} approved by @${approval.by})`]
       : ['show the PRD and this plan to the captain', HOW_TO_APPROVE(rev), 'crew kickoff --apply'];
     return warnings.length ? warn(summary, { artifacts, next_actions }) : ok(summary, { artifacts, next_actions });
   }
 
-  // One person drives the plan — the captain (crew.config.json → captain, written by crew up). Members do not plan.
-  if (captain) {
-    const who = gh(['api', 'user', '--jq', '.login']);
-    const me = who.code === 0 ? who.stdout.trim() : null;
-    // the acting captain (a handover by the captain, or the automatic fallback) may plan too, if the project allows it
-    const act = acting();
-    if (!hasCaptainPowers(me, { captain }, act)) {
-      return fail('not_captain', `Only the captain ${captain}${act?.login && act.why !== 'captain' ? ` (or @${act.login}, acting now)` : ''} creates the plan and tasks${me ? `, and you are ${me}` : ''}`, {
-        cause_hint: 'the team has one plan: a second kickoff creates duplicate tasks and a foreign skeleton',
-        retry: 'members: do not plan, work through the crew-workflow cycle (crew task next)',
-        stop_when: 'immediately: tell the human that the captain makes the plan',
-        artifacts: { captain, me },
-      });
-    }
-  }
   // Kickoff runs from main: otherwise the issues get created but the plan does not reach main (or another branch does).
   const branch = deps.branch !== undefined ? deps.branch : deps.gh ? 'main' : run('git', ['branch', '--show-current'], { cwd: root, allowFail: true }).stdout.trim();
   if (branch !== 'main') {
@@ -320,7 +345,11 @@ export async function runKickoff({ file = DEFAULT_PRD, apply = false, skip_disco
     writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(readFileSync(cfgPath, 'utf8')), phase: 'build' }, null, 2) + '\n');
     planFiles = [...PLAN_DOCS, 'crew.config.json'];
   }
-  const pub = deps.publish ? deps.publish() : deps.gh ? { state: 'skipped' } : publishPlan({ root, me: agentId(), files: planFiles });
+  // Publish only the text that was approved: an edit made while the tasks were being created is not part of the plan.
+  const now = deps.gh ? text : loadPrd({ file, root, areas: deps.areas ?? cfg?.config.areas }).text;
+  const pub = now !== undefined && prdRevision(now) !== rev
+    ? { state: 'failed', note: `${file} changed while the tasks were created (now ${shortRev(prdRevision(now))}, approved ${shortRev(rev)}): not publishing it; the captain checks the change and approves it again` }
+    : deps.publish ? deps.publish() : deps.gh ? { state: 'skipped' } : publishPlan({ root, me: agentId(), files: planFiles });
   if (pub.state === 'failed') warnings.push(pub.note);
   const artifacts = { apply: true, created: res.created, map: res.map, skipped: plan.ops.filter((o) => o.op === 'skip' || o.op === 'changed').map((o) => o.id), warnings, plan_published: pub.state };
   const summary = `Kickoff: created ${res.created.length}, skipped ${artifacts.skipped.length}`;

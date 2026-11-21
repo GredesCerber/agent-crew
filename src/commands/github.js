@@ -88,18 +88,26 @@ export function planSetup({ repo, harness = DEFAULT_HARNESS, labels = [], branch
  * existing: GET .../protection (or null). → { body, kept: [what was kept], warnings }
  */
 export function mergeProtection(body, existing) {
-  if (!existing || typeof existing !== 'object') return { body, kept: [], warnings: [] };
+  if (!existing || typeof existing !== 'object') return { body, kept: [], warnings: [], blockers: [] };
   const kept = [];
   const warnings = [];
+  const blockers = [];
   const out = structuredClone(body);
+  const logins = (x) => ({ users: (x?.users ?? []).map((u) => u.login), teams: (x?.teams ?? []).map((t) => t.slug), apps: (x?.apps ?? []).map((a) => a.slug) });
   const rsc = existing.required_status_checks;
   if (rsc) {
-    const have = new Set(out.required_status_checks.checks.map((c) => c.context));
-    const theirs = rsc.checks?.length ? rsc.checks : (rsc.contexts ?? []).map((context) => ({ context }));
+    const ours = new Map(out.required_status_checks.checks.map((c) => [c.context, c]));
+    const theirs = rsc.checks?.length ? rsc.checks : (rsc.contexts ?? []).map((context) => ({ context, app_id: null }));
     for (const c of theirs) {
-      if (have.has(c.context)) continue;
-      out.required_status_checks.checks.push(Number.isInteger(c.app_id) && c.app_id > 0 ? { context: c.context, app_id: c.app_id } : { context: c.context });
-      have.add(c.context);
+      // a check with no fixed source stays open to any source (-1); one bound to an app stays bound to it
+      const app = Number.isInteger(c.app_id) && c.app_id > 0 ? c.app_id : -1;
+      const mine = ours.get(c.context);
+      if (mine) {
+        if (app !== -1 && app !== mine.app_id) blockers.push(`the required check "${c.context}" on main comes from another app (id ${app}); crew needs its own "${c.context}" from GitHub Actions: rename one of them first`);
+        continue;
+      }
+      out.required_status_checks.checks.push({ context: c.context, app_id: app });
+      ours.set(c.context, c);
       kept.push(`required check ${c.context}`);
     }
     if (rsc.strict) { out.required_status_checks.strict = true; kept.push('branches must be up to date before merging'); }
@@ -114,27 +122,36 @@ export function mergeProtection(body, existing) {
     for (const k of ['require_code_owner_reviews', 'dismiss_stale_reviews', 'require_last_push_approval']) {
       if (rv[k]) { want[k] = true; kept.push(k.replaceAll('_', ' ')); }
     }
+    if (rv.dismissal_restrictions) { want.dismissal_restrictions = logins(rv.dismissal_restrictions); kept.push('who may dismiss reviews'); }
+    if (rv.bypass_pull_request_allowances) { want.bypass_pull_request_allowances = logins(rv.bypass_pull_request_allowances); kept.push('who may bypass pull requests'); }
   }
   if (existing.enforce_admins?.enabled) { out.enforce_admins = true; kept.push('rules apply to admins too'); }
   if (existing.required_conversation_resolution?.enabled) { out.required_conversation_resolution = true; kept.push('conversations resolved before merging'); }
   if (existing.required_linear_history?.enabled) {
-    out.required_linear_history = true;
-    kept.push('linear history');
-    warnings.push('the branch requires linear history, but crew merges with merge commits (squash loses the Agent trailers): crew PRs will not merge until a person turns linear history off');
+    // GitHub needs squash or rebase allowed for linear history, and crew turns both off: the two cannot be set together
+    blockers.push('main requires linear history, but crew merges with merge commits (squash and rebase lose the Agent trailers crew-guard reads): turn "Require linear history" off first, or do not use crew on this repo');
   }
-  const r = existing.restrictions;
-  if (r && (r.users?.length || r.teams?.length || r.apps?.length)) {
-    out.restrictions = { users: (r.users ?? []).map((u) => u.login), teams: (r.teams ?? []).map((t) => t.slug), apps: (r.apps ?? []).map((a) => a.slug) };
-    kept.push('who may push');
-  }
-  return { body: out, kept, warnings };
+  // restrictions present, even with empty lists (only admins push), are kept as they are
+  if (existing.restrictions) { out.restrictions = logins(existing.restrictions); kept.push('who may push'); }
+  return { body: out, kept, warnings, blockers };
 }
 
-/** The current protection of the branch, or null (none, or no right to read it). */
-function currentProtection(repo, branch, cwd, sh) {
+/**
+ * The current protection of the branch. → { state: none | present | unavailable | unknown, data, error }.
+ * unknown (a timeout, a 5xx, no right to read it) is not "none": overwriting it could drop rules we never saw.
+ */
+export function currentProtection(repo, branch, cwd, sh) {
   const r = sh('gh', ['api', `repos/${repo}/branches/${encodeURIComponent(branch)}/protection`], { cwd, allowFail: true });
-  if (r.code !== 0) return null;
-  try { return JSON.parse(r.stdout || 'null'); } catch { return null; }
+  const said = `${r.stderr ?? ''}\n${r.stdout ?? ''}`;
+  if (r.code !== 0) {
+    if (/Branch not protected/i.test(said) || (/HTTP 404/.test(said) && !/Branch not found/i.test(said))) return { state: 'none', data: null };
+    if (/Upgrade to GitHub Pro|make this repository public/i.test(said)) return { state: 'unavailable', data: null };
+    return { state: 'unknown', data: null, error: said.trim().split('\n')[0] || 'gh failed' };
+  }
+  try {
+    const data = JSON.parse(r.stdout || 'null');
+    return data ? { state: 'present', data } : { state: 'none', data: null };
+  } catch { return { state: 'unknown', data: null, error: 'gh returned something that is not JSON' }; }
 }
 
 const is404 = (r) => /HTTP 404|Not Found/i.test(r.stderr + r.stdout);
@@ -174,9 +191,10 @@ export default {
     { name: 'harness', type: 'string', description: `CREW_HARNESS value (default ${DEFAULT_HARNESS})` },
     { name: 'branch', type: 'string', description: 'branch to protect (default main)' },
     { name: 'apply', type: 'boolean', description: 'execute the plan (without the flag — only show it)' },
+    { name: 'no_protection', type: 'boolean', description: 'do not touch the protection of the branch (a private repo on the free plan cannot have one)' },
   ],
   // cwd and deps.run — for calls from crew up (project folder and a gh stub in tests); not passed from the CLI.
-  run({ repo, harness = DEFAULT_HARNESS, branch = 'main', apply = false, cwd }, deps = {}) {
+  run({ repo, harness = DEFAULT_HARNESS, branch = 'main', apply = false, cwd, no_protection = false }, deps = {}) {
     const sh = deps.run ?? run;
     const { config, root } = loadConfig(cwd);
     if (repo !== undefined && !REPO_RE.test(String(repo))) {
@@ -193,8 +211,15 @@ export default {
     const labels = allLabels(config);
     const plan = planSetup({ repo: resolved ?? '<owner>/<name>', harness, labels, branch });
     // an existing repo keeps its own required checks and review rules: crew adds to them, never removes them
-    const merged = resolved ? mergeProtection(plan.at(-1).body, currentProtection(resolved, branch, root, sh)) : { kept: [], warnings: [] };
-    if (merged.body) {
+    let merged = { kept: [], warnings: [], blockers: [] };
+    const prot = resolved ? currentProtection(resolved, branch, root, sh) : { state: 'none' };
+    if (no_protection || prot.state === 'unavailable') {
+      plan.pop();
+      merged.warnings.push(no_protection ? `the protection of ${branch} is left as it is (--no_protection)` : `${branch} cannot be protected on this plan (a private repo on the free plan): PRs can merge without review or checks`);
+    } else if (prot.state === 'unknown') {
+      merged.blockers.push(`could not read the current protection of ${branch} (${prot.error}): not changing anything, so no rule of yours is lost; try again`);
+    } else {
+      merged = mergeProtection(plan.at(-1).body, prot.data);
       plan.at(-1).body = merged.body;
       if (merged.kept.length) plan.at(-1).summary += `; kept from the existing rules: ${merged.kept.join(', ')}`;
     }
@@ -202,14 +227,18 @@ export default {
     if (!apply) {
       const summary = `Setup plan for ${resolved ?? '<owner>/<name>'}: ${plan.length} gh api calls (dry-run, nothing changed)`;
       const opts = {
-        artifacts: { repo: resolved, apply: false, plan, kept: merged.kept, warnings: merged.warnings },
-        next_actions: [...merged.warnings, resolved ? `crew github setup --repo ${resolved} --apply` : 'crew github setup --repo <owner>/<name> --apply'],
+        artifacts: { repo: resolved, apply: false, plan, kept: merged.kept, warnings: merged.warnings, blockers: merged.blockers },
+        next_actions: [...merged.blockers, ...merged.warnings, resolved ? `crew github setup --repo ${resolved} --apply` : 'crew github setup --repo <owner>/<name> --apply'],
       };
-      return resolved && !merged.warnings.length ? ok(summary, opts) : warn(summary + (resolved ? '' : ' — repo not determined, pass --repo'), opts);
+      return resolved && !merged.warnings.length && !merged.blockers.length ? ok(summary, opts) : warn(summary + (resolved ? '' : ' — repo not determined, pass --repo'), opts);
     }
 
     if (sh('gh', ['auth', 'status'], { cwd: root, allowFail: true }).code !== 0) {
       return fail('gh_auth', 'gh is not authenticated', { retry: 'gh auth login', stop_when: 'no admin rights on the repo — ask the owner' });
+    }
+    // nothing is written while the branch rules cannot be merged safely
+    if (merged.blockers.length) {
+      return fail('protection_conflict', `Not changing ${resolved}: ${merged.blockers[0]}`, { cause_hint: merged.blockers.join(' | '), retry: `fix it, then crew github setup --repo ${resolved} --apply`, stop_when: 'a rule only a repo admin can change: tell them', artifacts: { repo: resolved, blockers: merged.blockers } });
     }
     const results = applyPlan(plan, root, sh);
     const failed = results.filter((r) => !r.ok);
