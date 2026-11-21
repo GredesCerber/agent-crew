@@ -212,7 +212,8 @@ export default {
     const plan = planSetup({ repo: resolved ?? '<owner>/<name>', harness, labels, branch });
     // an existing repo keeps its own required checks and review rules: crew adds to them, never removes them
     let merged = { kept: [], warnings: [], blockers: [] };
-    const prot = resolved ? currentProtection(resolved, branch, root, sh) : { state: 'none' };
+    // read only when applying: the dry run makes no GitHub calls; --apply reads the rules first and keeps them
+    const prot = resolved && apply ? currentProtection(resolved, branch, root, sh) : { state: 'none' };
     if (no_protection || prot.state === 'unavailable') {
       plan.pop();
       merged.warnings.push(no_protection ? `the protection of ${branch} is left as it is (--no_protection)` : `${branch} cannot be protected on this plan (a private repo on the free plan): PRs can merge without review or checks`);
@@ -225,7 +226,7 @@ export default {
     }
 
     if (!apply) {
-      const summary = `Setup plan for ${resolved ?? '<owner>/<name>'}: ${plan.length} gh api calls (dry-run, nothing changed)`;
+      const summary = `Setup plan for ${resolved ?? '<owner>/<name>'}: ${plan.length} gh api calls (dry-run, nothing changed; --apply first reads the current protection of ${branch} and keeps its rules)`;
       const opts = {
         artifacts: { repo: resolved, apply: false, plan, kept: merged.kept, warnings: merged.warnings, blockers: merged.blockers },
         next_actions: [...merged.blockers, ...merged.warnings, resolved ? `crew github setup --repo ${resolved} --apply` : 'crew github setup --repo <owner>/<name> --apply'],

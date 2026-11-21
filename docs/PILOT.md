@@ -11,7 +11,7 @@ host (Claude Code or Codex) and, for the review, a second agent (another host, o
 
 ```bash
 cd your-repo
-crew github setup            # dry run: what it would change on GitHub, and which of your rules it keeps
+crew github setup            # dry run, no GitHub calls: what it would change; --apply reads your rules first and keeps them
 ```
 
 `crew github setup` only **adds** to the protection of `main`. Your required checks stay required (with the app that
