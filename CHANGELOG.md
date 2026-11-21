@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-11-21
+
 From an independent review of 0.9.0.
 
 ### Fixed
