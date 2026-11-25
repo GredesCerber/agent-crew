@@ -5,6 +5,10 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-25
+
+Antigravity joins Claude Code and Codex as an agent host.
+
 ### Added
 - **Antigravity as an agent host.** Put `antigravity` in `hosts`: `crew adapters build` writes a local workspace plugin, `.agents/plugins/crew/`, with the crew MCP server (the agent is `gemini@<machine>`, so its PRs and reviews count as another vendor) and a rule on naming itself in the terminal; Antigravity reads `AGENTS.md` and the skills in `.agents/skills/` by itself (the same files Codex uses). `crew up` and `crew doctor` find the installed app (it has no command on PATH). Checked live in Antigravity 44.9 on Windows: the agent sees the crew tools, the rules and the crew-workflow skill, and `crew_doctor` answers as `gemini@<machine>` in the project.
 - The crew MCP server finds its project when a host starts it elsewhere: from `CREW_PROJECT_DIR`, or from the client's MCP roots.
