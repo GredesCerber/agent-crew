@@ -4,7 +4,7 @@
 
 **A vendor-neutral development environment where several coding agents (Claude Code, Codex, Antigravity, more through adapters) and humans work as one team on any project, coordinated through GitHub Issues and Pull Requests.**
 
-People write clear tasks, agents on the team members' own machines take them from a shared queue, write the code, check it and hand it in for review, and the tool makes sure they do not step on each other, do not break `main` and follow one set of rules, whether the agent is Claude or GPT. It was battle-tested at a 4-person hackathon (10-13 Nov 2026, about 200 merged PRs in the public repo [employee-feedback](https://github.com/GredesCerber/employee-feedback), run with its predecessor `hk`); the hackathon features are an optional [event mode](#event-mode).
+People write clear tasks, agents on the team members' own machines take them from a shared queue, write the code, check it and hand it in for review, and the tool makes sure they do not step on each other, do not break `main` and follow one set of rules, whether the agent is Claude, GPT or Gemini. It was battle-tested at a 4-person hackathon (10-13 Nov 2026, about 200 merged PRs in the public repo [employee-feedback](https://github.com/GredesCerber/employee-feedback), run with its predecessor `hk`); the hackathon features are an optional [event mode](#event-mode).
 
 ---
 
@@ -41,7 +41,7 @@ flowchart LR
     P --> Q[(GitHub Issues<br/>task queue)]
     Q -->|crew task next / claim| W1[Claude<br/>alice's laptop]
     Q -->|crew task next / claim| W2[Codex<br/>bob's laptop]
-    Q -->|crew task next / claim| W3[...<br/>carol's laptop]
+    Q -->|crew task next / claim| W3[Antigravity<br/>carol's laptop]
     W1 & W2 & W3 -->|crew check -> crew pr open| PR[Pull Requests]
     PR -->|review by an agent<br/>of another vendor| R[Review]
     R -->|merge| M[main, always<br/>releasable]
@@ -69,13 +69,13 @@ crew up --repo owner/name --public --invite alice,bob
 crew up --join owner/name
 ```
 
-What stays manual, because an agent must not or cannot do it: logging in (`gh auth login`, Claude, Codex) and confirming project trust in Codex.
+What stays manual, because an agent must not or cannot do it: logging in (`gh auth login`, Claude, Codex, Antigravity) and confirming project trust in Codex.
 
 **Private repo on the free GitHub plan?** GitHub does not protect `main` there, so PR rules and checks bind nobody. `crew up` checks the plan before it writes anything and stops with `preflight` unless you pass `--public`, have a paid plan, or say `--no_protection` knowingly. Already have a repo? [Try crew on one issue](docs/PILOT.md) first: `crew github setup` keeps the required checks and review rules your `main` already has.
 
 ### 1. Install (once per machine)
 
-Needs Node.js 22+, git, the [GitHub CLI](https://cli.github.com/) (`gh auth login`) and at least one agent: [Claude Code](https://code.claude.com) or [Codex CLI](https://github.com/openai/codex).
+Needs Node.js 22+, git, the [GitHub CLI](https://cli.github.com/) (`gh auth login`) and at least one agent: [Claude Code](https://code.claude.com), [Codex CLI](https://github.com/openai/codex) or [Antigravity](https://antigravity.google). Two agents of different vendors on the team give you cross-vendor review.
 
 The tool installs from the public npm registry (no tokens):
 
@@ -111,7 +111,7 @@ git config --global core.longpaths true
 crew up my-product --repo owner/my-product --stack web-node --invite alice,bob --public
 ```
 
-`crew up` runs `crew init`, makes the first commit, creates the GitHub repo and pushes, invites the members, and sets up `main` protection, labels and `CREW_HARNESS`. It is safe to re-run: finished steps are skipped. Add `--hosts claude,codex` to choose agent hosts.
+`crew up` runs `crew init`, makes the first commit, creates the GitHub repo and pushes, invites the members, and sets up `main` protection, labels and `CREW_HARNESS`. It is safe to re-run: finished steps are skipped. Choose agent hosts with `--hosts` (default `claude,codex`; also `antigravity`).
 
 Or step by step:
 
@@ -152,14 +152,14 @@ crew github setup --apply   # do it
 
 With `--apply` it:
 
-- protects `main`: PRs only, green `check` (tests) and `crew-guard` (PR rules + agent review) required, no force-push. **Zero manual approvals**: a human is not an "approve button";
+- protects `main`: PRs only, green `check` (tests) and `crew-guard` (PR rules + agent review) required, no force-push. **Zero manual approvals**: a human is not an "approve button". Rules `main` already has are kept (required checks, required human approvals, who may push), and nothing is changed if the current protection cannot be read;
 - enables auto-merge and plain merge commits only (squash and rebase are off because they lose the `Agent`/`Issue` trailers);
 - sets the `CREW_HARNESS` repo variable: the install spec CI uses, by default `@gredescerber/agent-crew@<version>` (another one via `--harness`);
 - creates or updates all labels (like `crew labels sync`).
 
 Re-running is safe. The repo is taken from the current folder (`gh repo view`) or from `--repo owner/name`; another branch via `--branch`.
 
-> **Branch protection needs a public repo or GitHub Pro/Team.** On the free plan a private repo cannot protect `main`, and `crew github setup --apply` fails with HTTP 403.
+> **Branch protection needs a public repo or GitHub Pro/Team.** On the free plan a private repo cannot protect `main`: `crew github setup --apply` then leaves the protection step out and warns, and `crew up` stops before writing anything unless you pass `--no_protection`.
 
 ### 4. Join an existing project (members)
 
@@ -169,7 +169,7 @@ Re-running is safe. The repo is taken from the current folder (`gh repo view`) o
 crew up --join owner/name
 ```
 
-This accepts the invitation, clones the repo, configures git and runs `crew adapters build`, which creates the local agent configs (`.mcp.json`, `.codex/config.toml`, skills, roles). They depend on the machine and are not committed; `crew task claim` copies them into each task worktree.
+This accepts the invitation, clones the repo, configures git and runs `crew adapters build`, which creates the local agent configs (`.mcp.json`, `.codex/config.toml`, `.agents/plugins/crew/`, skills, roles) and adds them to `.gitignore`. They depend on the machine and are not committed; `crew task claim` copies them into each task worktree.
 
 An agent's name in tasks and commits is `CREW_AGENT` plus the machine name (`claude@alice-laptop`), added by `crew`. A second session on the same machine gets its own name automatically from the crew MCP server (`claude@alice-laptop#2`); the two count as one agent for review, so neither can approve the other. In a terminal outside your task folder, with several sessions running, crew asks you to use the MCP tools instead of guessing (`ambiguous_agent`).
 
@@ -237,7 +237,7 @@ When a person suggests something outside the current task, the agent does not bu
 `crew digest` (kept by CI in a pinned issue every 15 minutes) and `crew board` (a local captain's console with a kanban, a task drawer and screens for the team, the inbox, discovery, PRs and activity) show what waits for a human, stale leases, PRs waiting, open questions, ideas, idle members, people with access but no area, the phase and research over budget. Nobody has to keep an agent polling the repo.
 
 ### Cross-agent review and `crew-guard`
-Claude's code is reviewed by Codex and vice versa: different models catch different mistakes. `crew-guard` is a commit status set on every PR:
+Claude's code is reviewed by Codex or Antigravity (Gemini), and the other way round: different models catch different mistakes. `crew-guard` is a commit status set on every PR:
 
 - `failure` if the PR changes the rules of agents or CI (`crew.config.json`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `agents/**`, `events/**`). Agents may not do this at all; the rules are changed by a maintainer;
 - `failure` if the PR changes or deletes an **existing** acceptance test and its task does not allow it (the `changes_acceptance` field of the PRD task). Adding new tests is fine;
@@ -421,7 +421,7 @@ Always re-read the rules of each event; organizers differ. Without `events/event
 | I want | What to do |
 |---|---|
 | A new `crew` command | a file in `src/commands/` + a line in `src/core/registry.js`; it then appears in both the CLI and MCP |
-| Support for a new agent (Gemini, Cursor, ...) | `adapters/<host>/adapter.js` with `generate()` and `headless()`, add the host to `hosts` |
+| Support for a new agent (Cursor, Gemini CLI, ...) | `adapters/<host>/adapter.js` with `generate()` (and `headless()` for `crew worker`, `installed()` for an app with no command on PATH), add the host to `hosts`; [`adapters/antigravity`](adapters/antigravity/adapter.js) is a short example |
 | A new stack | `templates/stacks/<name>.json`: areas, generators, checks |
 | A new role or skill | `roles/<name>.md` or `skills/<name>/SKILL.md` (Agent Skills format) |
 
@@ -429,12 +429,13 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 
 ## Limitations
 
-- **Branch protection needs a public repo or GitHub Pro/Team.** A private repo on the free GitHub plan cannot protect `main`; `crew github setup --apply` returns HTTP 403.
+- **Branch protection needs a public repo or GitHub Pro/Team.** A private repo on the free GitHub plan cannot protect `main`, so PR rules and checks bind nobody there (`crew up` asks for `--no_protection` to go on).
 - **`crew-guard` catches laziness and mistakes, not malice.** Agents work under their humans' accounts, so an agent that deliberately forges a `crew:review` marker in someone else's name or merges with `--admin` is not technically stopped; that is forbidden in `AGENTS.md` and visible in PR history. Weakening a test, "fixing" CI or approving its own work by accident will not work.
 - **Headless Claude** for `crew worker` uses `claude -p` with `--permission-mode acceptEdits` and an explicit `--allowedTools` list (file edits, `npm`/`node`/`uv`, read-only `git`, `crew`); the flags follow the Claude Code docs and have had less live testing than Codex. Try one task on your machine first. Headless Codex (`codex exec`) was verified live on codex-cli 0.166: `crew` tools are called without confirmation (`default_tools_approval_mode = "approve"` for the `crew` server only).
 - **The Perplexity MCP package is not chosen:** `templates/mcp.optional.json` contains the placeholder `VERIFY-PACKAGE-NAME-BEFORE-ENABLING`; enable it only after verifying the package name.
 - **Privacy of your rules:** `crew init` copies rules, roles, skills and workflows into the product repo, so if that repo is public, those files are public too.
 - **Codex terminal identity:** the project's `.codex/config.toml` sets `CREW_AGENT=codex` for Codex terminal commands through `[shell_environment_policy]`; the key exists in codex-cli 0.166, but this was not yet tried in a live Codex session.
+- **Antigravity** works in the chat only: there is no headless run for `crew worker` or `crew eval` yet. It names itself through the crew MCP tools; for `crew` in its terminal it follows the plugin rule and sets `CREW_AGENT=gemini` first. If the crew tools are missing in the first conversation after opening a project, restart Antigravity once. Checked live in Antigravity 44.9 on Windows (tools, rules, skills, identity); a full task loop on it is still to be run.
 - A commit status `crew-guard` set by `GITHUB_TOKEN` is counted with the GitHub Actions `app_id`; if your setup differs, set branch protection to accept "any source".
 
 ## Roadmap
@@ -442,8 +443,10 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 - [x] **v0**: `crew` (CLI + MCP), AGENTS.md, roles and skills, Claude Code and Codex adapters, GitHub templates, CI, compliance
 - [x] **v1**: MCP in the task worktree (`cwd`), leases by commits, `crew:pause` in code, `crew check` timeouts, config protection in CI, `crew github setup`, `crew worker`, `crew metrics`, `crew eval`, `crew kickoff` with the `crew-team` block, `crew up`, review-first queue; see [`docs/ROADMAP-v1.md`](docs/ROADMAP-v1.md)
 - [x] **v0.6–0.9**: deterministic merges in CI (`crew merge-ready`), a team digest without an LLM, the local board, questions between agents, ideas, captain handover, per-session agent names, the discovery phase, one-message join, solo mode
-- [ ] **0.10**: session locks per repo, resume after a renamed session, pre-release versions, live checks of Codex and Claude headless wiring, `crew worker --budget`
-- [ ] **0.11 and later**: nightly checks, an independent review before each release, adapters for Gemini and Cursor, actions only a person may take
+- [x] **0.10**: the captain's console (`crew board`: kanban with drag and drop, task drawer, team, inbox, discovery, PRs, activity)
+- [x] **0.11**: `crew up --check` and a stop before the first write when `main` cannot be protected, `crew github setup` keeps a repo's own rules, [a pilot on one issue](docs/PILOT.md), the PRD approved by the captain for one exact revision (no approval by timeout)
+- [x] **0.12**: Antigravity as an agent host
+- [ ] **Next**: session locks per repo, resume after a renamed session, pre-release versions, live checks of the Codex and Claude headless wiring, `crew worker --budget`; then nightly checks, a review step before each release, adapters for Cursor and Gemini CLI, actions only a person may take
 
 The details, with why and when each item counts as done: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
