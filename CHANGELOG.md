@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Fixed
+- `crew up --join` and `crew adapters build` no longer leave a fresh clone dirty on Windows: a generated file that differs only in line endings (git checks out CRLF with `core.autocrlf=true`) is not rewritten (#1).
+
 ## [0.12.0] — 2026-11-25
 
 Antigravity joins Claude Code and Codex as an agent host.

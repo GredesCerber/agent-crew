@@ -58,6 +58,16 @@ export function ensureIgnored(root, files) {
   return add;
 }
 
+const lf = (s) => s.replace(/\r\n/g, '\n');
+/**
+ * Does the generated file need writing? Line endings do not count: with core.autocrlf=true git checks committed files
+ * out with CRLF, and rewriting them with LF would leave a fresh clone dirty for no change at all (issue #1).
+ */
+export function needsWrite(root, f) {
+  const p = join(root, f.path);
+  return !existsSync(p) || lf(readFileSync(p, 'utf8')) !== lf(f.content);
+}
+
 export async function buildFiles(root, config) {
   const sources = readSources(root);
   const files = [];
@@ -88,7 +98,7 @@ export default {
         retry: 'fix hosts in crew.config.json',
       });
     }
-    const stale = files.filter((f) => !existsSync(join(root, f.path)) || readFileSync(join(root, f.path), 'utf8') !== f.content);
+    const stale = files.filter((f) => needsWrite(root, f));
     if (check) {
       // Only committed files are checked: local (machine-specific) ones differ per machine.
       const staleCommitted = stale.filter((f) => f.commit);
