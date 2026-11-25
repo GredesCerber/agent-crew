@@ -7,7 +7,7 @@ The history of how we got here is in [`CHANGELOG.md`](../CHANGELOG.md) and [`ROA
 - **Team loop:** GitHub Issues as the queue with leases, one task per PR, a review-first `crew task next`, cross-vendor review, `crew-guard` rules from `main`, deterministic merges in CI (`crew merge-ready`).
 - **Planning:** a discovery phase with research tasks and recorded decisions, then a PRD approved by a person, then `crew kickoff`.
 - **People:** a captain who can hand the role over, ideas and questions as issues, `crew digest` and `crew board` with no LLM involved, joining a project with one message, a solo mode.
-- **Hosts:** Claude Code and Codex.
+- **Hosts:** Claude Code, Codex and Antigravity (its adapter is new: the crew tools, rules and skills were checked live in the app; a full task loop on it is still to be run).
 - **0.10** shipped the captain's console (`crew board`) instead of the items below; they move to 0.11.
 - **Done for 0.11 so far** (from a Codex review and its advice): `crew up --check` and a stop before the first write when `main` cannot be protected; `crew github setup` keeps a repo's own protection rules and [a pilot on one issue](PILOT.md); the PRD approval is a record of one revision by the captain (no approval by timeout); the board fixes from the review (page key, writes checked against fresh state, release order).
 
@@ -37,7 +37,7 @@ How we pick what comes next:
    - `crew doctor` in this repo warns when the newest tag is not `latest` on npm.
 
 ## Later
-- **Gemini CLI and Cursor adapters.**
+- **Gemini CLI and Cursor adapters** (Antigravity is done: a workspace plugin with the crew MCP server).
   - Each adapter goes in `adapters/<host>/`, with the generated files covered by a test, and with MCP and instructions wiring checked live.
   - A host counts as supported only after one real task has gone through the full loop on it.
 - **Actions only a person may take.** Agents usually run under their person's GitHub account, so whatever a person can do, their agent can do too: pass `--skip_discovery`, waive a rule, or post the PRD approval comment. The PRD approval is now bound to one revision, given by the captain on `crew board`, and never by timeout; but an agent on the captain's own account could still post it.

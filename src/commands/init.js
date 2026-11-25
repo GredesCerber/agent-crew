@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { ok, fail } from '../core/output.js';
 import { git } from '../core/exec.js';
 import { HARNESS_ROOT, DEFAULT_CONFIG } from '../core/config.js';
-import { buildFiles } from './adapters.js';
+import { buildFiles, ignoreEntries } from './adapters.js';
 
 export const STACKS_DIR = join(HARNESS_ROOT, 'templates', 'stacks');
 
@@ -75,7 +75,7 @@ export default {
       mkdirSync(dirname(join(root, f.path)), { recursive: true });
       writeFileSync(join(root, f.path), f.content);
     }
-    const local = [...new Set(files.filter((f) => !f.commit).map((f) => (f.path.includes('/skills/') ? f.path.split('/skills/')[0] + '/skills/' : f.path)))];
+    const local = ignoreEntries(files);
     const gi = ['# crew: local files', '.crew/', ...local, '', '# secrets', '.env', '.env.*', '!.env.example', '', 'node_modules/', '__pycache__/', '.venv/', 'dist/', ''];
     writeFileSync(join(root, '.gitignore'), gi.join('\n'));
     // 5. git

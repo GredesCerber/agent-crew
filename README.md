@@ -2,7 +2,7 @@
 
 # agent-crew
 
-**A vendor-neutral development environment where several coding agents (Claude Code, Codex, more through adapters) and humans work as one team on any project, coordinated through GitHub Issues and Pull Requests.**
+**A vendor-neutral development environment where several coding agents (Claude Code, Codex, Antigravity, more through adapters) and humans work as one team on any project, coordinated through GitHub Issues and Pull Requests.**
 
 People write clear tasks, agents on the team members' own machines take them from a shared queue, write the code, check it and hand it in for review, and the tool makes sure they do not step on each other, do not break `main` and follow one set of rules, whether the agent is Claude or GPT. It was battle-tested at a 4-person hackathon (10-13 Nov 2026, about 200 merged PRs in the public repo [employee-feedback](https://github.com/GredesCerber/employee-feedback), run with its predecessor `hk`); the hackathon features are an optional [event mode](#event-mode).
 
@@ -131,7 +131,8 @@ crew.config.json         ← areas, checks, model tiers, MCP
 agents/roles/            ← analyst, planner, builder, reviewer, integrator + helpers scout, implementer
 agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis, crew-discovery
 .claude/ .mcp.json       ← generated for Claude Code (+ the ECC plugin)
-.codex/ .agents/skills/  ← generated for Codex
+.codex/ .agents/skills/  ← generated for Codex (Antigravity uses .agents/skills/ too)
+.agents/plugins/crew/    ← generated for Antigravity (local: holds this machine's project path)
 .github/                 ← issue and PR templates, CI checks (crew.yml) and PR rules (crew-guard.yml)
 contracts/ tests/ docs/  ← API contracts, acceptance tests, brief, discovery.md, decisions.md, playbooks
 README.md JOIN.md        ← the first line tells a newcomer what to say to their agent; JOIN.md is for that agent
@@ -193,6 +194,8 @@ Details in [crew kickoff](#crew-kickoff).
 **Claude Code**: open the project folder; it reads `CLAUDE.md` -> `AGENTS.md` and connects the `crew` MCP server on its own. Then:
 
 > /loop 10m Work the crew-workflow loop
+
+**Antigravity** (Google's agent app): put `antigravity` in `hosts` (`crew.config.json`) and run `crew adapters build`. It writes a local plugin, `.agents/plugins/crew/` (the crew MCP server for this project, as `gemini@<machine>`, plus a rule on naming itself in the terminal); Antigravity reads `AGENTS.md` and the skills in `.agents/skills/` by itself. Open the project folder in Antigravity (Projects → New Project) and start a new conversation; if the crew tools are not there yet, restart Antigravity once. Then ask it to work the crew-workflow loop, as for Codex. Its PRs count as a different vendor (`gemini`) for review, so Claude or Codex reviews them and it reviews theirs.
 
 **Codex**: run `codex` in the project root and confirm you trust the project (otherwise it will not read `.codex/config.toml`, which also gives its terminal commands `CREW_AGENT=codex`). Codex has no `/loop`, so the loop runs in the chat on top of `crew task next --wait`:
 

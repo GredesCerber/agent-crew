@@ -34,6 +34,30 @@ export function frontmatter(md) {
   return { meta, body: m[2] };
 }
 
+/**
+ * .gitignore lines for the files that stay on this machine: a skills folder or a plugin folder as a whole, other
+ * files one by one. Some hold this machine's paths, so they must never be committed.
+ */
+export function ignoreEntries(files) {
+  const entry = (p) => {
+    if (p.includes('/skills/')) return p.split('/skills/')[0] + '/skills/';
+    const plugin = /^(.*\/plugins\/[^/]+\/)/.exec(p);
+    return plugin ? plugin[1] : p;
+  };
+  return [...new Set(files.filter((f) => !f.commit).map((f) => entry(f.path)))];
+}
+
+/** Add the missing local entries to an existing .gitignore (a host added to a project later). → the lines added. */
+export function ensureIgnored(root, files) {
+  const p = join(root, '.gitignore');
+  if (!existsSync(p)) return [];
+  const text = readFileSync(p, 'utf8');
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
+  const add = ignoreEntries(files).filter((e) => !have.has(e));
+  if (add.length) writeFileSync(p, `${text}${text.endsWith('\n') || !text ? '' : '\n'}# crew: local agent configs\n${add.join('\n')}\n`);
+  return add;
+}
+
 export async function buildFiles(root, config) {
   const sources = readSources(root);
   const files = [];
@@ -50,7 +74,7 @@ export async function buildFiles(root, config) {
 
 export default {
   name: 'adapters build',
-  summary: 'Generate configs for agent hosts (Claude Code, Codex) from AGENTS.md, roles and skills',
+  summary: 'Generate configs for agent hosts (Claude Code, Codex, Antigravity) from AGENTS.md, roles and skills',
   agent: false,
   args: [{ name: 'check', type: 'boolean', description: 'only check that generated files are up to date (for CI)' }],
   // cwd — for calls from crew up (cloned project folder); not passed from the CLI.
@@ -76,11 +100,12 @@ export default {
       mkdirSync(dirname(join(root, f.path)), { recursive: true });
       writeFileSync(join(root, f.path), f.content);
     }
+    const ignored = ensureIgnored(root, files);
     const local = files.filter((f) => !f.commit).map((f) => f.path);
     // "0 of 26" read like a failure: say plainly that nothing needed changing, and that some files stay on this machine.
     const what = stale.length ? `${stale.length} of ${files.length} files updated` : `all ${files.length} files already up to date`;
     return ok(`Agent configs for ${config.hosts.join(', ')}: ${what} (${local.length} of them are local to this machine, not committed)`, {
-      artifacts: { written: stale.map((f) => f.path), local_only: local },
+      artifacts: { written: stale.map((f) => f.path), local_only: local, gitignore_added: ignored },
       next_actions: ['restart agent sessions so they pick up the configs'],
     });
   },

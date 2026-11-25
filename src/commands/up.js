@@ -13,7 +13,7 @@ import { ok, warn, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
 import init from './init.js';
-import adapters from './adapters.js';
+import adapters, { loadAdapter } from './adapters.js';
 import github, { DEFAULT_HARNESS, REPO_RE } from './github.js';
 import { mainProtected } from './pr.js';
 import { policyFrom } from './captain.js';
@@ -53,6 +53,7 @@ export function launchHints(hosts = [], root = '.', platform = process.platform)
       ? `Codex: cd ${root}; $env:CREW_AGENT='codex'; codex — and confirm trust for the project`
       : `Codex: cd ${root} && CREW_AGENT=codex codex — and confirm trust for the project`);
   }
+  if (hosts.includes('antigravity')) out.push(`Antigravity: Projects → New Project → ${root}, then a new conversation (the crew tools come from .agents/plugins/crew; if they are missing, restart Antigravity once)`);
   out.push('first message to the agent: "Work through the crew-workflow cycle: take tasks from the queue and do them until they run out."');
   return out;
 }
@@ -135,8 +136,17 @@ function checkHkOnPath(j, sh) {
   j.manual('crew-on-path', 'crew is not on PATH — the agent MCP will not start: run npm link in the harness folder');
 }
 
-function checkHosts(j, sh, hosts) {
-  const missing = hosts.filter((h) => tool(sh, h, ['--version']).code !== 0);
+/** Is this agent host installed? A CLI host answers --version; an app with no CLI (Antigravity) says itself. */
+export async function hostInstalled(sh, h, exists = existsSync) {
+  const a = await loadAdapter(h);
+  if (a && typeof a.installed === 'function') return a.installed({ exists });
+  return tool(sh, h, ['--version']).code === 0;
+}
+
+async function checkHosts(j, sh, hosts) {
+  const ok = [];
+  for (const h of hosts) if (await hostInstalled(sh, h)) ok.push(h);
+  const missing = hosts.filter((h) => !ok.includes(h));
   if (missing.length === hosts.length) j.manual('agents', `no agent found (${hosts.join(', ')}) — install at least one`);
   else if (missing.length) j.add('agents', 'skipped', `found: ${hosts.filter((h) => !missing.includes(h)).join(', ')}; missing: ${missing.join(', ')}`);
   else j.add('agents', 'skipped', `found: ${hosts.join(', ')}`);
@@ -203,7 +213,8 @@ export function preflight(o, sh, me) {
   }
   if (tool(sh, 'crew', ['--version']).code !== 0) warnings.push('crew is not on PATH: the agents\' MCP config will not start (npm install -g @gredescerber/agent-crew)');
   const hosts = hostList(o.hosts).hosts;
-  const found = hosts.filter((h) => tool(sh, h, ['--version']).code === 0);
+  // preflight is synchronous: an app host with no CLI (Antigravity) is checked by crew up itself, not counted here
+  const found = hosts.filter((h) => h === 'antigravity' || tool(sh, h, ['--version']).code === 0);
   if (!found.length) warnings.push(`no agent found (${hosts.join(', ')}): install at least one before the team starts`);
   return { blockers, warnings, facts: { repo, exists: !!existing, visibility, plan, protection, agents: found } };
 }
@@ -339,7 +350,7 @@ async function lead(o, sh) {
   checkHkOnPath(j, sh);
   const finalConfig = loadConfig(root).config;
   const hosts = finalConfig.hosts ?? [];
-  checkHosts(j, sh, hosts);
+  await checkHosts(j, sh, hosts);
   // The repo owner should know who decides and whether that role can be handed over: say it in plain words.
   const captainRule = explainPolicy(finalConfig);
 
@@ -417,7 +428,7 @@ async function member(o, sh) {
 
   checkHkOnPath(j, sh);
   const hosts = loadConfig(root).config.hosts ?? [];
-  checkHosts(j, sh, hosts);
+  await checkHosts(j, sh, hosts);
   if (hosts.includes('codex')) j.human.push('Codex: on the first run in the project folder confirm trust (otherwise it will not read .codex/config.toml)');
 
   // 5. The crew version this repo pins: an older one opens PRs that crew-guard fails (outdated_crew).
@@ -459,7 +470,7 @@ export default {
     { name: 'start', type: 'string', description: 'captain: event start, ISO (together with --end enables the compliance check)' },
     { name: 'end', type: 'string', description: 'captain: event end, ISO' },
     { name: 'event_name', type: 'string', description: 'captain: event name for events/event.json' },
-    { name: 'hosts', type: 'string', description: 'captain: agent hosts, comma-separated (default claude,codex)' },
+    { name: 'hosts', type: 'string', description: 'captain: agent hosts, comma-separated: claude, codex, antigravity (default claude,codex)' },
     { name: 'harness', type: 'string', description: `captain: CREW_HARNESS value (default ${DEFAULT_HARNESS})` },
     { name: 'solo', type: 'boolean', description: 'captain: one person with one agent (no second-agent review, no discovery phase, no handover)' },
     { name: 'handover', type: 'string', enum: ['off', 'deputies', 'team'], description: 'captain: may the captain role be handed over? off (no), deputies (only to --deputies), team (anyone with write access); ask the repo owner' },

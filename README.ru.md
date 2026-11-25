@@ -131,7 +131,8 @@ crew.config.json         ← зоны, проверки, уровни модел
 agents/roles/            ← analyst, planner, builder, reviewer, integrator + помощники scout, implementer
 agents/skills/           ← crew-workflow, crew-kickoff, crew-review, crew-brief-analysis, crew-discovery
 .claude/ .mcp.json       ← сгенерировано для Claude Code (+ плагин ECC)
-.codex/ .agents/skills/  ← сгенерировано для Codex
+.codex/ .agents/skills/  ← сгенерировано для Codex (Antigravity тоже берёт .agents/skills/)
+.agents/plugins/crew/    ← сгенерировано для Antigravity (локально: в нём путь к проекту на этой машине)
 .github/                 ← шаблоны задач и PR, CI-проверки (crew.yml) и правила PR (crew-guard.yml)
 contracts/ tests/ docs/  ← контракты API, приёмочные тесты, ТЗ, discovery.md, decisions.md, плейбуки
 README.md JOIN.md        ← первая строка говорит новичку, что написать своему агенту; JOIN.md для этого агента
@@ -193,6 +194,8 @@ crew kickoff --apply      # создать issues, когда PRD одобрен
 **Claude Code**: откройте папку проекта; он сам прочитает `CLAUDE.md` -> `AGENTS.md` и подключит MCP-сервер `crew`. Затем:
 
 > /loop 10m Work the crew-workflow loop
+
+**Antigravity** (агентное приложение Google): добавьте `antigravity` в `hosts` (`crew.config.json`) и выполните `crew adapters build`. Команда создаст локальный плагин `.agents/plugins/crew/` (MCP-сервер crew для этого проекта под именем `gemini@<машина>` и правило о том, как называть себя в терминале); `AGENTS.md` и skills в `.agents/skills/` Antigravity читает сам. Откройте папку проекта в Antigravity (Projects → New Project) и начните новый разговор; если инструментов crew ещё нет, один раз перезапустите Antigravity. Дальше попросите его работать по циклу crew-workflow, как Codex. Его PR считаются другим вендором (`gemini`) при ревью: их проверяет Claude или Codex, а он проверяет их PR.
 
 **Codex**: запустите `codex` в корне проекта и подтвердите доверие проекту (иначе он не прочитает `.codex/config.toml`, который заодно даёт его командам в терминале `CREW_AGENT=codex`). В Codex нет `/loop`, поэтому цикл крутится в чате поверх `crew task next --wait`:
 

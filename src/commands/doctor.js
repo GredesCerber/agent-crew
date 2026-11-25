@@ -5,6 +5,7 @@ import { ok, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import { LOCAL_VERSION, updateHint } from '../core/version.js';
+import { loadAdapter } from './adapters.js';
 
 const probe = (cmd, args) => {
   const r = run(cmd, args, { allowFail: true });
@@ -24,14 +25,15 @@ export function hostWiring(root, hosts = [], { exists = existsSync, read = (p) =
     if (!has('.claude/settings.json', /mcp__crew/)) problems.push('claude: .claude/settings.json does not pre-approve the crew tools');
   }
   if (hosts.includes('codex') && !has('.codex/config.toml', /\[mcp_servers\.crew\]/)) problems.push('codex: the crew MCP server is not in .codex/config.toml');
+  if (hosts.includes('antigravity') && !has('.agents/plugins/crew/mcp_config.json', /"crew"\s*:/)) problems.push('antigravity: the crew MCP server is not in .agents/plugins/crew/mcp_config.json');
   return problems;
 }
 
 export default {
   name: 'doctor',
-  summary: 'Check the environment: node, git, gh (auth), claude, codex, project config',
+  summary: 'Check the environment: node, git, gh (auth), the agent hosts (claude, codex, antigravity), project config',
   args: [],
-  run() {
+  async run() {
     const { config, path, root } = loadConfig();
     const winCmd = process.platform === 'win32';
     const tool = (name, args) => probe(name, args) ?? (winCmd ? probe('cmd', ['/c', name, ...args]) : null);
@@ -43,7 +45,11 @@ export default {
       config: path ?? null,
       agent_id: agentId(),
     };
-    for (const h of config.hosts ?? []) items[h] = tool(h, ['--version']);
+    // a host with a CLI answers --version; an app with no command on PATH (Antigravity) says itself whether it is installed
+    for (const h of config.hosts ?? []) {
+      const a = await loadAdapter(h);
+      items[h] = a && typeof a.installed === 'function' ? (a.installed({ exists: existsSync }) ? 'installed' : null) : tool(h, ['--version']);
+    }
     const required = ['git', 'gh', 'gh_auth'];
     const missing = required.filter((k) => !items[k]);
     const hostsMissing = (config.hosts ?? []).filter((h) => !items[h]);
