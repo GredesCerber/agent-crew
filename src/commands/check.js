@@ -1,5 +1,6 @@
 // crew check — runs the check steps from crew.config.json and reports errors concisely;
 // the full log goes to .crew/logs/, the result to .crew/last-check.json (required by crew pr open).
+import { pruneLogs } from '../core/logs.js';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ok, fail } from '../core/output.js';
@@ -66,6 +67,7 @@ export default {
       });
     }
     const dir = join(root, '.crew', 'logs');
+    pruneLogs(dir); // keep the newest logs; old ones of finished work go
     mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const logPath = join(dir, `check-${stamp}.txt`);

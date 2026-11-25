@@ -1,6 +1,6 @@
 // crew task next | claim | release | status | heartbeat | sweep | promote
-import { basename, join, resolve } from 'node:path';
-import { cpSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, join, resolve, dirname } from 'node:path';
+import { cpSync, existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync, readdirSync, rmdirSync } from 'node:fs';
 import { ok, warn, fail } from '../core/output.js';
 import { git, run, ghJson } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
@@ -48,6 +48,7 @@ export function syncLocalFiles(root, worktree) {
 }
 
 import { sectionEntries } from './adapters.js';
+import { pruneLogs } from '../core/logs.js';
 import { liveSlots, repoSlotsDir, baseId, sameAgent } from '../core/session.js';
 import { taskMarkers } from '../core/guard.js';
 
@@ -121,6 +122,8 @@ const next = {
     const paused = (deps.pauseGuard ?? pauseGuard)();
     if (paused) return paused;
     const { config, root } = deps.config ? { config: deps.config, root: deps.root } : loadConfig();
+    // housekeeping between tasks: folders of closed tasks and old logs (at most every few hours, never fails)
+    if (!deps.config) autoCleanup(root);
     const me = deps.me ?? agentId();
     const login = deps.login !== undefined ? deps.login : myLogin();
     const team = deps.team !== undefined ? deps.team : teamFromPrd(root);
@@ -354,11 +357,25 @@ const claim = {
 };
 
 /**
+ * The main folder of the repository, also when called from inside a task worktree (whose own folder also has a
+ * crew.config.json). Task folders are named after it, not after the worktree the agent happens to stand in.
+ */
+export function mainRepoRoot(root, { sh = (args) => git(args, { cwd: root, allowFail: true }) } = {}) {
+  const r = sh(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const common = r.code === 0 ? String(r.stdout ?? '').trim() : '';
+  return common && basename(common) === '.git' ? dirname(resolve(common)) : root;
+}
+
+/** Where the folder of task <id> goes: one "<project>.worktrees" folder next to the project, not one folder per task. */
+export const taskFolder = (main, id) => join(dirname(main), `${basename(main)}.worktrees`, String(id));
+
+/**
  * Branch crew/<id>-* and worktree for a task. Claiming again (after release/timeout) reuses
  * the existing branch and worktree instead of failing on `git worktree add -b`. Throws CrewError on a git failure.
  * → { branch, worktree, reused }
  */
-export function prepareWorkspace({ root, id, title, no_worktree = false }) {
+export function prepareWorkspace({ root: here, id, title, no_worktree = false }) {
+  const root = no_worktree ? here : mainRepoRoot(here);
   git(['fetch', 'origin'], { cwd: root, allowFail: true });
   const existing = git(['for-each-ref', '--format=%(refname:short)', `refs/heads/crew/${id}-*`], { cwd: root, allowFail: true })
     .stdout.split('\n').map((s) => s.trim()).filter((b) => b.startsWith(`crew/${id}-`));
@@ -370,16 +387,20 @@ export function prepareWorkspace({ root, id, title, no_worktree = false }) {
     return { branch, worktree: root, reused: existing.length > 0 };
   }
 
-  const worktree = resolve(root, '..', `${basename(root)}-wt-${id}`);
+  const worktree = taskFolder(root, id);
   git(['worktree', 'prune'], { cwd: root, allowFail: true }); // forget worktrees whose folders were deleted
   const registered = parseWorktrees(git(['worktree', 'list', '--porcelain'], { cwd: root }).stdout);
-  const here = registered.find((w) => samePath(w.path, worktree));
-  if (here) {
-    if (here.branch !== branch) {
-      git(['checkout', branch], { cwd: worktree });
+  // the task's folder as it is now, or the one an older crew made (<project>-wt-<id>) for the same branch
+  const found = registered.find((w) => samePath(w.path, worktree)) ?? registered.find((w) => w.branch === branch);
+  if (found) {
+    // git prints paths in its own form (slashes, long names): keep ours when it is the same folder
+    const path = samePath(found.path, worktree) ? worktree : found.path;
+    if (found.branch !== branch) {
+      git(['checkout', branch], { cwd: path });
     }
-    return { branch, worktree, reused: true, copied: syncLocalFiles(root, worktree) };
+    return { branch, worktree: path, reused: true, copied: syncLocalFiles(root, path) };
   }
+  mkdirSync(dirname(worktree), { recursive: true });
   git(existing.length ? ['worktree', 'add', worktree, branch] : ['worktree', 'add', '-b', branch, worktree, base], { cwd: root });
   return { branch, worktree, reused: existing.length > 0, copied: syncLocalFiles(root, worktree) };
 }
@@ -649,12 +670,35 @@ export function planCleanup(worktrees, { issueState, dirty, unsaved }) {
   });
 }
 
+/**
+ * The folders of closed tasks go away by themselves: crew task next runs the same safe cleanup (closed, nothing
+ * uncommitted, everything saved in main or on GitHub) at most every few hours, and prunes old logs. Never throws.
+ * → what was removed, or null when it was not time yet.
+ */
+export const AUTO_CLEANUP_HOURS = 6;
+export function autoCleanup(root, { now = Date.now(), run = () => cleanup.run({ quiet: true, cwd: root }), prune = () => pruneLogs(join(mainRepoRoot(root), '.crew', 'logs')) } = {}) {
+  try {
+    const main = mainRepoRoot(root);
+    const stamp = join(main, '.crew', 'last-cleanup');
+    let last = 0;
+    try { last = Number(readFileSync(stamp, 'utf8').trim()) || 0; } catch { /* first time */ }
+    if (now - last < AUTO_CLEANUP_HOURS * 3600_000) return null;
+    mkdirSync(dirname(stamp), { recursive: true });
+    writeFileSync(stamp, String(now));
+    const r = run();
+    const logs = prune();
+    return { removed: r?.artifacts?.removed ?? [], logs_removed: logs };
+  } catch {
+    return null; // housekeeping must never stop the agent from getting its next task
+  }
+}
+
 const cleanup = {
   name: 'task cleanup',
   summary: 'Remove the folders (worktrees) of closed tasks: with no uncommitted changes and with the work already saved in main or on GitHub',
   args: [{ name: 'dry_run', type: 'boolean', description: 'show only what would be removed' }],
-  run({ dry_run = false } = {}) {
-    const { root } = loadConfig();
+  run({ dry_run = false, cwd } = {}) {
+    const root = mainRepoRoot(loadConfig(cwd).root);
     git(['fetch', '--quiet', 'origin'], { cwd: root, allowFail: true });
     const wts = taskWorktrees(git(['worktree', 'list', '--porcelain'], { cwd: root }).stdout);
     const states = new Map();
@@ -670,11 +714,16 @@ const cleanup = {
     const removed = [];
     if (!dry_run) {
       for (const w of plan.filter((p) => p.remove)) {
+        // never the folder this command runs in (an agent may be standing in it)
+        if (samePath(w.path, process.cwd())) { w.remove = false; w.why = 'this is the current folder'; continue; }
         const r = git(['worktree', 'remove', w.path], { cwd: root, allowFail: true });
         if (r.code !== 0) { w.remove = false; w.why = `git worktree remove: ${(r.stderr || r.stdout).split('\n')[0]}`; continue; }
         git(['branch', '-D', w.branch], { cwd: root, allowFail: true }); // the work is already in main or on GitHub (checked above)
         removed.push(w.path);
       }
+      // the shared <project>.worktrees folder goes too once its last task folder is gone
+      const shared = join(dirname(root), `${basename(root)}.worktrees`);
+      try { if (existsSync(shared) && readdirSync(shared).length === 0) rmdirSync(shared); } catch { /* still in use */ }
     }
     const kept = plan.filter((p) => !p.remove).map((p) => `${p.path} — ${p.why}`);
     const would = plan.filter((p) => p.remove).map((p) => p.path);
