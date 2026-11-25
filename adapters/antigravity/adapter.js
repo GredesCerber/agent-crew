@@ -46,7 +46,8 @@ export default {
     const servers = {
       crew: mcpEntry({ command: 'crew', args: ['mcp'], env: { CREW_AGENT: IDENTITY, ...(root ? { CREW_PROJECT_DIR: root } : {}) } }, platform),
     };
-    // optional MCP servers from crew.config.json; secrets stay in the environment (no env_from values are written)
+    // optional MCP servers from crew.config.json. Secrets (env_from: GH_TOKEN, API keys) are never written here: a
+    // stdio server inherits the environment of Antigravity itself, so set them in the user environment and restart it
     for (const [name, srv] of Object.entries(config.mcp ?? {})) if (srv.enabled) servers[name] = mcpEntry(srv, platform);
     const dir = '.agents/plugins/crew';
     files.push({ path: `${dir}/plugin.json`, commit: false, content: JSON.stringify({ name: 'crew', homepage: 'https://github.com/GredesCerber/agent-crew' }, null, 2) + '\n' });

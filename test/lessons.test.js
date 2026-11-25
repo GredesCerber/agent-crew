@@ -8,7 +8,8 @@ import { join } from 'node:path';
 
 import { hostWiring } from '../src/commands/doctor.js';
 import { readyProblems } from '../src/core/prd.js';
-import taskCmds, { unfinishedWork } from '../src/commands/task.js';
+import taskCmds, { unfinishedWork, adoptTask } from '../src/commands/task.js';
+import { currentOwner } from '../src/core/issues.js';
 import { run } from '../src/core/exec.js';
 import prLogs, { failedChecks, errorExcerpt } from '../src/commands/pr-logs.js';
 import claude from '../adapters/claude/adapter.js';
@@ -64,8 +65,25 @@ test('unfinished work: my pinned worktree, still claimed by me, no PR yet -> res
     prHeads: () => ['crew/6-api'],
     ahead: () => 3,
   };
-  assert.deepEqual(unfinishedWork('/r', 'claude@pc', io), [{ path: '/r-wt-5', branch: 'crew/5-form', id: 5, ahead: 3 }]);
-  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...io, issue: () => claimedBy('someone@else') }), [], 'lease lost');
+  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...io, live: () => [] }), [{ path: '/r-wt-5', branch: 'crew/5-form', id: 5, ahead: 3, adopt_from: null }]);
+  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...io, live: () => [], issue: () => claimedBy('someone@else') }), [], 'lease lost');
+
+  // the session came back under a new name (claude@pc#2 -> claude@pc): its own work is found and taken over
+  const renamed = { ...io, pin: (p) => ({ '/r-wt-5': 'claude@pc#2' })[p], issue: () => claimedBy('claude@pc#2') };
+  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...renamed, live: () => ['claude@pc'] }), [{ path: '/r-wt-5', branch: 'crew/5-form', id: 5, ahead: 3, adopt_from: 'claude@pc#2' }]);
+  // but never a sibling that is still running, and never another agent's
+  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...renamed, live: () => ['claude@pc', 'claude@pc#2'] }), [], 'a live sibling keeps its task');
+  assert.deepEqual(unfinishedWork('/r', 'claude@pc', { ...renamed, pin: () => 'codex@pc', issue: () => claimedBy('codex@pc'), live: () => [] }), [], 'another vendor');
+  const posted = [];
+  const pinned = [];
+  adoptTask({ id: 5, path: '/r-wt-5', adopt_from: 'claude@pc#2' }, 'claude@pc', { post: (id, b) => posted.push([id, b]), pinTo: (p, id) => pinned.push([p, id]), now: () => '2026-11-25T10:00:00Z' });
+  assert.match(posted[0][1], /crew:release agent=claude@pc at=2026-11-25T10:00:00Z of=claude@pc#2 -->\n<!-- crew:claim agent=claude@pc at=2026-11-25T10:00:00Z -->/);
+  assert.equal(currentOwner([{ body: '<!-- crew:claim agent=claude@pc#2 at=x -->' }, { body: posted[0][1] }]).agent, 'claude@pc', 'the lease is the new name now');
+  assert.deepEqual(pinned, [['/r-wt-5', 'claude@pc']]);
+  const adopted = [];
+  const r2 = cmd('task next').run({}, { config: {}, root: '/r', me: 'claude@pc', login: null, team: null, unfinished: () => [{ id: 5, path: '/r-wt-5', branch: 'crew/5-form', ahead: 3, adopt_from: 'claude@pc#2' }], adopt: (u, me) => adopted.push([u.id, me]), updateHint: () => null, pauseGuard: () => null });
+  assert.equal(r2.artifacts.adopted_from, 'claude@pc#2');
+  assert.deepEqual(adopted, [[5, 'claude@pc']]);
 
   const r = cmd('task next').run({}, { config: {}, root: '/r', me: 'claude@pc', login: null, team: null, unfinished: () => [{ id: 5, path: '/r-wt-5', branch: 'crew/5-form', ahead: 3 }], updateHint: () => null, pauseGuard: () => null });
   assert.equal(r.artifacts.kind, 'resume');

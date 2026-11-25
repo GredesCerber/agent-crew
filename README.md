@@ -351,12 +351,14 @@ The loop: `crew task next` -> `crew task claim <id>` -> the agent starts in the 
 | `--max-failures` | 3 | stop after N failures in a row |
 | `--task-timeout-min` | 60 | kill the agent (the whole process tree) on a task |
 | `--wait` | off | empty queue: poll every 5 min instead of exiting |
+| `--budget-min` | none | time budget for the whole run: no new task after it, and a task gets at most what is left |
+| `--budget-usd` | none | cost budget: stop once the tasks cost this much (Claude reports a cost; Codex does not) |
 | `--dry-run` | off | only show the task and the launch command |
 
 - **Success**: after the agent exits, the task is in `review`/`done`. `blocked`/`needs-spec` is a handoff, not a failure.
 - **Failure**: the task stayed `claimed` (the agent crashed, exited silently, timed out): the worker runs `crew task release` with a note and a link to the log.
-- **Stops**: pause (`crew:pause`), empty queue, task limit, N failures in a row, 3 claim conflicts in a row, the agent will not start.
-- Task progress goes to stderr, agent output to `.crew/logs/worker-<id>-*.log`, the result is a `crew/v1` answer with `artifacts: { done, failed, blocked, stopped_reason }`.
+- **Stops**: pause (`crew:pause`), empty queue, task limit, N failures in a row, 3 claim conflicts in a row, the agent will not start, the time or cost budget is used up.
+- Task progress goes to stderr, agent output to `.crew/logs/worker-<id>-*.log`, the result is a `crew/v1` answer with `artifacts: { done, failed, blocked, stopped_reason, elapsed_min, cost_usd }`.
 - Codex is launched as `codex exec --json -s workspace-write -c sandbox_workspace_write.network_access=true -C <worktree> --add-dir <repo .git> -` (the prompt goes to stdin). Claude as `claude -p <prompt> --output-format json --permission-mode acceptEdits` with an explicit `--allowedTools` list.
 - For humans only: the worker is not exposed over MCP.
 
@@ -431,7 +433,7 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). What prior art we studi
 
 - **Branch protection needs a public repo or GitHub Pro/Team.** A private repo on the free GitHub plan cannot protect `main`, so PR rules and checks bind nobody there (`crew up` asks for `--no_protection` to go on).
 - **`crew-guard` catches laziness and mistakes, not malice.** Agents work under their humans' accounts, so an agent that deliberately forges a `crew:review` marker in someone else's name or merges with `--admin` is not technically stopped; that is forbidden in `AGENTS.md` and visible in PR history. Weakening a test, "fixing" CI or approving its own work by accident will not work.
-- **Headless Claude** for `crew worker` uses `claude -p` with `--permission-mode acceptEdits` and an explicit `--allowedTools` list (file edits, `npm`/`node`/`uv`, read-only `git`, `crew`); the flags follow the Claude Code docs and have had less live testing than Codex. Try one task on your machine first. Headless Codex (`codex exec`) was verified live on codex-cli 0.166: `crew` tools are called without confirmation (`default_tools_approval_mode = "approve"` for the `crew` server only).
+- **Headless Claude** for `crew worker` uses `claude -p` with `--permission-mode acceptEdits` and an explicit `--allowedTools` list (file edits, `npm`/`node`/`uv`, read-only `git`, `crew`); checked live on Claude Code 2.1.319 (a file edit without prompts, an allowed `node` command, `CREW_AGENT=claude/default` in its shell). Headless Codex (`codex exec`) was verified live on codex-cli 0.166: `crew` tools are called without confirmation (`default_tools_approval_mode = "approve"` for the `crew` server only).
 - **The Perplexity MCP package is not chosen:** `templates/mcp.optional.json` contains the placeholder `VERIFY-PACKAGE-NAME-BEFORE-ENABLING`; enable it only after verifying the package name.
 - **Privacy of your rules:** `crew init` copies rules, roles, skills and workflows into the product repo, so if that repo is public, those files are public too.
 - **Codex terminal identity:** the project's `.codex/config.toml` sets `CREW_AGENT=codex` for Codex terminal commands through `[shell_environment_policy]`; the key exists in codex-cli 0.166, but this was not yet tried in a live Codex session.

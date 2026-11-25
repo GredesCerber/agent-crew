@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const user = (() => { try { return userInfo().username.replace(/[^A-Za-z0-9._-]/g, '_'); } catch { return 'user'; } })();
 // Per user. On a shared Unix machine another account could pre-create the tmp folder, so a folder we do not own
@@ -22,6 +23,44 @@ function slotsDir() {
   return join(homedir(), '.crew', 'agents');
 }
 export const SLOTS_DIR = slotsDir();
+
+/** origin's URL as host/owner/name, so https and ssh clones of one repo match. */
+const normUrl = (u) => String(u).trim().replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]+@/, '').replace(/^([^/:]+):(?!\d)/, '$1/').replace(/\.git$/i, '').replace(/\/+$/, '').toLowerCase();
+
+/**
+ * Which repository a folder belongs to: origin's URL, or the shared .git folder when there is no origin. A task
+ * worktree and the main folder of one repo give the same key; two unrelated repos never do. → 12 hex, or 'no-repo'.
+ */
+export function repoKey(cwd = process.cwd()) {
+  let dir = resolve(cwd);
+  for (let i = 0; i < 40; i++) {
+    const g = join(dir, '.git');
+    if (existsSync(g)) {
+      let common = g;
+      try {
+        if (statSync(g).isFile()) {
+          const gitdir = resolve(dir, /gitdir:\s*(.+)/.exec(readFileSync(g, 'utf8'))?.[1]?.trim() ?? '.git');
+          const cd = join(gitdir, 'commondir');
+          common = existsSync(cd) ? resolve(gitdir, readFileSync(cd, 'utf8').trim()) : gitdir;
+        }
+      } catch { /* an unreadable .git file: key by the folder */ }
+      let url = null;
+      try { url = /\[remote "origin"\][^[]*?\burl\s*=\s*(\S+)/.exec(readFileSync(join(common, 'config'), 'utf8'))?.[1] ?? null; } catch { /* no config */ }
+      const id = url ? normUrl(url) : resolve(common).toLowerCase();
+      return createHash('sha1').update(id).digest('hex').slice(0, 12);
+    }
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return 'no-repo';
+}
+
+/**
+ * Slot locks of one repository: sessions of the same agent in two unrelated repos are not siblings (each gets
+ * claude@pc there), while the sessions inside one repo still share names and see each other.
+ */
+export const repoSlotsDir = (cwd = process.cwd()) => join(SLOTS_DIR, repoKey(cwd));
 export const PIN_FILE = join('.crew', 'agent-id');
 /** A lock not refreshed for this long is stale even if its PID is alive (PIDs are reused, crashes skip exit handlers). */
 export const STALE_MS = 30 * 60_000;
@@ -57,7 +96,7 @@ function readLock(file, { now = Date.now(), isAlive = alive } = {}) {
  * one slot cannot both win.
  * -> { id, release(), refresh() } or null when every slot is busy.
  */
-export function claimSlot(base, { dir = SLOTS_DIR, pid = process.pid, isAlive = alive, max = 20, now = Date.now() } = {}) {
+export function claimSlot(base, { dir = repoSlotsDir(), pid = process.pid, isAlive = alive, max = 20, now = Date.now() } = {}) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   for (let n = 1; n <= max; n++) {
     const id = slotName(base, n);
@@ -98,14 +137,19 @@ export function claimSlot(base, { dir = SLOTS_DIR, pid = process.pid, isAlive = 
 }
 
 /** Real ids (as stored in the locks) of live sessions of base: base, base#2, ... */
-export function liveSlots(base, { dir = SLOTS_DIR, isAlive = alive, now = Date.now() } = {}) {
+export function liveSlots(base, { dir = repoSlotsDir(), isAlive = alive, now = Date.now() } = {}) {
+  const want = base == null ? null : String(base).toLowerCase();
+  return allLiveSlots({ dir, isAlive, now }).filter((id) => want === null || baseId(id).toLowerCase() === want);
+}
+
+/** Every live session of this repository on this machine (crew doctor lists them). */
+export function allLiveSlots({ dir = repoSlotsDir(), isAlive = alive, now = Date.now() } = {}) {
   let names;
   try { names = readdirSync(dir); } catch { return []; }
-  const want = String(base).toLowerCase();
   const ids = [];
   for (const f of names.filter((x) => x.endsWith('.lock'))) {
     const lock = readLock(join(dir, f), { now, isAlive });
-    if (lock?.id && baseId(lock.id).toLowerCase() === want) ids.push(lock.id);
+    if (lock?.id) ids.push(lock.id);
   }
   return ids.sort();
 }

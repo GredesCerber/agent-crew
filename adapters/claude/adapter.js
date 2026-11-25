@@ -91,7 +91,7 @@ export default {
    * #19 (M9): in -p mode nobody can be asked for permission, and .claude/settings.json allows only crew and gh view,
    * so file edits would be rejected. Hence: --permission-mode acceptEdits (edits in cwd without prompts)
    * and an explicit --allowedTools HEADLESS_TOOLS (each rule as a separate argument, as in the Claude Code docs).
-   * Flags follow the Claude Code docs; a live run on a machine with the claude CLI is still needed.
+   * Checked live on Claude Code 2.1.319: exit 0, a file edit without prompts, an allowed node command, CREW_AGENT in its shell.
    */
   headless({ prompt, model, platform = process.platform, searchPath = process.env.PATH ?? '' }) {
     const args = ['-p', prompt, '--output-format', 'json', '--permission-mode', 'acceptEdits'];

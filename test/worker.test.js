@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runWorker, taskPrompt } from '../src/commands/worker.js';
+import { runWorker, taskPrompt, costFromLog } from '../src/commands/worker.js';
 import { fail, warn, ok } from '../src/core/output.js';
 import { findCommand, parseArgs, agentCommands } from '../src/core/registry.js';
 import claude from '../adapters/claude/adapter.js';
@@ -237,4 +237,33 @@ test('spawnAgent: the prompt in stdin, output to a log, a kill on timeout', asyn
 
   const missing = await spawnAgent({ cmd: 'crew-no-such-binary-xyz', args: [] }, { cwd: dir, env: {}, timeoutMs: 1000 });
   assert.ok(missing.error);
+});
+
+test('worker budget: no new task after the time budget, and a task gets at most what is left', async () => {
+  const { deps, calls } = fakeBoard({ queue: [1, 2, 3] });
+  let clock = 0;
+  deps.now = () => clock;
+  const spawn = deps.spawn;
+  deps.spawn = async (spec, o) => { const r = await spawn(spec, o); clock += 25 * 60_000; return r; }; // each task takes 25 min
+  const r = await runWorker({ host: 'fake', budget_min: 60 }, deps);
+  assert.equal(r.artifacts.stopped_reason, 'budget_time');
+  assert.deepEqual(r.artifacts.done, [1, 2, 3], 'the third task started with 10 min left');
+  assert.equal(calls.spawn[0].timeoutMs, 60 * 60_000);
+  assert.equal(calls.spawn[2].timeoutMs, 10 * 60_000, 'capped by the remaining budget, not the 60 min task timeout');
+  assert.equal(r.artifacts.elapsed_min, 75);
+  assert.match(r.summary, /time budget of 60 min/);
+});
+
+test('worker budget: stop once the reported cost reaches the dollar budget; unknown cost stays null', async () => {
+  const { deps } = fakeBoard({ queue: [1, 2, 3, 4] });
+  deps.costOf = () => 0.6;
+  const r = await runWorker({ host: 'fake', budget_usd: 1 }, deps);
+  assert.equal(r.artifacts.stopped_reason, 'budget_cost');
+  assert.deepEqual(r.artifacts.done, [1, 2]);
+  assert.equal(r.artifacts.cost_usd, 1.2);
+  const plain = fakeBoard({ queue: [1] });
+  plain.deps.costOf = () => null;
+  assert.equal((await runWorker({ host: 'fake' }, plain.deps)).artifacts.cost_usd, null, 'Codex reports no cost');
+  assert.equal(costFromLog('{"type":"result","total_cost_usd":0.0421}\n'), 0.0421);
+  assert.equal(costFromLog('{"type":"turn.completed","usage":{"input_tokens":10}}'), null);
 });

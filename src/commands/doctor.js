@@ -6,6 +6,7 @@ import { run } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import { LOCAL_VERSION, updateHint } from '../core/version.js';
 import { loadAdapter } from './adapters.js';
+import { allLiveSlots, repoSlotsDir } from '../core/session.js';
 
 const probe = (cmd, args) => {
   const r = run(cmd, args, { allowFail: true });
@@ -44,6 +45,8 @@ export default {
       gh_auth: run('gh', ['auth', 'status'], { allowFail: true }).code === 0 ? 'ok' : null,
       config: path ?? null,
       agent_id: agentId(),
+      // agent sessions of this repository on this machine (sessions in other repos are not siblings)
+      sessions: allLiveSlots({ dir: repoSlotsDir(root) }),
     };
     // a host with a CLI answers --version; an app with no command on PATH (Antigravity) says itself whether it is installed
     for (const h of config.hosts ?? []) {

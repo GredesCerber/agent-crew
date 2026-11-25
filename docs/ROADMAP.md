@@ -17,6 +17,8 @@ How we pick what comes next:
 - Then more hosts.
 
 ## Now: keep the promises (moved from 0.10)
+Done in 0.13: 1 (session locks per repository, `crew doctor` lists the sessions), 2 (a renamed session takes its own unfinished task over), 3 (SemVer pre-releases), 5 (`crew worker --budget-min / --budget-usd`), and the Claude half of 4 (checked live). Left: the Codex half of 4.
+
 1. **Session locks per repository.** Locks live in `crew-agents-<user>` for the whole machine, so two sessions in two unrelated repos look like siblings and get `ambiguous_agent`, and `crew doctor` says nothing.
    Done when locks are keyed by repo (remote URL or root path), `crew doctor` lists the live sessions of this repo, and a test runs two repos side by side.
 2. **Unfinished work survives a renamed session.** `resume` and fix delivery match the exact agent id. When slot names change between runs (`claude@pc#2` becomes `claude@pc`), the work is orphaned until its lease runs out.

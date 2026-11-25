@@ -5,6 +5,16 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- **`crew worker --budget-min N` and `--budget-usd X`.** No new task after the time budget, and a task gets at most what is left of it; the run stops once the tasks cost the dollar budget (Claude reports a cost in its JSON result; Codex does not, so `cost_usd` stays null). The answer says how far it got: `elapsed_min`, `cost_usd`.
+- `crew doctor` lists the live agent sessions of this repository on this machine.
+
+### Changed
+- **Session locks are per repository.** Two sessions of the same agent in two unrelated repos are no longer siblings (both are `claude@pc`, no `ambiguous_agent`); a task worktree shares its repo's sessions. The repo is recognized by origin's URL (https and ssh match), or by its `.git` folder when there is no origin.
+- **A renamed session finishes its own work.** When a session comes back under another name (`claude@pc#2` → `claude@pc`), `crew task next` finds the task its ended session left unfinished and takes the lease over (a release of the old claim and a new claim, and the worktree is pinned to the new name). A sibling session that is still running keeps its task, and another agent's work is never taken.
+- **Pre-release versions.** Versions compare as SemVer: `0.13.0-rc.1` is older than `0.13.0`. `CREW_HARNESS` may pin an rc, `crew pr open` stamps it, and `outdated_crew` and `crew up --join` order it correctly.
+- Headless Claude for `crew worker` was checked live on Claude Code 2.1.319.
+
 ### Fixed
 - `crew up --join` and `crew adapters build` no longer leave a fresh clone dirty on Windows: a generated file that differs only in line endings (git checks out CRLF with `core.autocrlf=true`) is not rewritten (#1).
 - Configs of a host added to a project later (for example Antigravity's `.agents/plugins/crew/`, which holds this machine's path) are kept out of git in `.git/info/exclude` instead of an appended `.gitignore` section: the clone stays clean, it works with no `.gitignore` at all, and `crew task claim` now copies them into task worktrees (the appended section was never read there).

@@ -353,12 +353,14 @@ crew worker --host claude --max-tasks 3 --dry-run    # показать, что 
 | `--max-failures` | 3 | стоп после N неудач подряд |
 | `--task-timeout-min` | 60 | убить агента (всё дерево процессов) на задаче |
 | `--wait` | выкл | очередь пуста: опрос раз в 5 мин вместо выхода |
+| `--budget-min` | нет | бюджет времени на весь запуск: после него новые задачи не берутся, а задача получает не больше остатка |
+| `--budget-usd` | нет | бюджет денег: остановиться, когда задачи столько стоили (Claude сообщает стоимость, Codex нет) |
 | `--dry-run` | выкл | только показать задачу и команду запуска |
 
 - **Успех**: после выхода агента задача в `review`/`done`. `blocked`/`needs-spec` это хендофф, а не неудача.
 - **Неудача**: задача осталась `claimed` (агент упал, вышел молча, таймаут): воркер делает `crew task release` с заметкой и ссылкой на лог.
-- **Стоп**: пауза (`crew:pause`), пустая очередь, лимит задач, N неудач подряд, 3 конфликта claim подряд, агент не запускается.
-- Прогресс по задачам идёт в stderr, вывод агента в `.crew/logs/worker-<id>-*.log`, итог это ответ `crew/v1` с `artifacts: { done, failed, blocked, stopped_reason }`.
+- **Стоп**: пауза (`crew:pause`), пустая очередь, лимит задач, N неудач подряд, 3 конфликта claim подряд, агент не запускается, кончился бюджет времени или денег.
+- Прогресс по задачам идёт в stderr, вывод агента в `.crew/logs/worker-<id>-*.log`, итог это ответ `crew/v1` с `artifacts: { done, failed, blocked, stopped_reason, elapsed_min, cost_usd }`.
 - Codex запускается как `codex exec --json -s workspace-write -c sandbox_workspace_write.network_access=true -C <worktree> --add-dir <.git репо> -` (промпт в stdin). Claude как `claude -p <промпт> --output-format json --permission-mode acceptEdits` с явным списком `--allowedTools`.
 - Только для людей: в MCP воркер не попадает.
 
@@ -433,7 +435,7 @@ crew eval --agents claude:opus,claude:sonnet --task fix-off-by-one
 
 - **Для защиты веток нужен публичный репо или GitHub Pro/Team.** Приватный репо на бесплатном тарифе GitHub не может защитить `main`, и правила PR и проверки там никого не держат (`crew up` просит `--no_protection`, чтобы продолжить).
 - **`crew-guard` ловит лень и ошибки, а не злой умысел.** Агенты работают под аккаунтами людей, поэтому агент, который *намеренно* подделает маркер `crew:review` от чужого имени или вмержит с `--admin`, технически не остановлен; это запрещено в `AGENTS.md` и видно в истории PR. Ослабить тест, «починить» CI или одобрить себя случайно не выйдет.
-- **Headless-запуск Claude** для `crew worker` использует `claude -p` с `--permission-mode acceptEdits` и явным списком `--allowedTools` (правки файлов, `npm`/`node`/`uv`, чтение `git`, `crew`); флаги взяты из документации Claude Code и проверялись вживую меньше, чем Codex. Сначала попробуйте одну задачу на своей машине. Headless-запуск Codex (`codex exec`) проверен вживую на codex-cli 0.166: инструменты `crew` вызываются без подтверждения (`default_tools_approval_mode = "approve"` только для сервера `crew`).
+- **Headless-запуск Claude** для `crew worker` использует `claude -p` с `--permission-mode acceptEdits` и явным списком `--allowedTools` (правки файлов, `npm`/`node`/`uv`, чтение `git`, `crew`); проверено вживую на Claude Code 2.1.319 (правка файла без вопросов, разрешённая команда `node`, `CREW_AGENT=claude/default` в его терминале). Headless-запуск Codex (`codex exec`) проверен вживую на codex-cli 0.166: инструменты `crew` вызываются без подтверждения (`default_tools_approval_mode = "approve"` только для сервера `crew`).
 - **Пакет Perplexity MCP не выбран:** в `templates/mcp.optional.json` стоит заглушка `VERIFY-PACKAGE-NAME-BEFORE-ENABLING`; включайте только после проверки имени пакета.
 - **Приватность ваших правил:** `crew init` копирует в репо продукта правила, роли, навыки и workflow, поэтому если этот репо публичный, эти файлы видны всем.
 - **Antigravity** работает только в чате: запуска без интерфейса для `crew worker` и `crew eval` пока нет. Своё имя он берёт из MCP-инструментов crew; для `crew` в терминале он по правилу плагина сначала ставит `CREW_AGENT=gemini`. Если в первом разговоре после открытия проекта инструментов crew нет, один раз перезапустите Antigravity. Проверено вживую в Antigravity 44.9 на Windows (инструменты, правила, навыки, имя агента); полный цикл задачи на нём ещё не прогонялся.

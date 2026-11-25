@@ -1,5 +1,6 @@
 // An outdated crew on a member's machine means fixes
 // do not take effect until the person updates their clone. crew compares itself with the latest harness tag.
+import { compareSemver } from './semver.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,12 +14,8 @@ const TTL_MS = 60 * 60_000;
 
 /** '0.2.10' > '0.2.9' (numbers, not strings). Not a version: null. */
 export function compareVersions(a, b) {
-  const p = (v) => (/^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? '')) ?? []).slice(1).map(Number);
-  const x = p(a);
-  const y = p(b);
-  if (x.length !== 3 || y.length !== 3) return null;
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
-  return 0;
+  // SemVer order, pre-releases included: 0.13.0-rc.1 is older than 0.13.0
+  return compareSemver(a, b);
 }
 
 /** Latest harness tag (via gh, cached for an hour in tmp). No network/access: null, does not interfere with work. */

@@ -3,7 +3,7 @@
 // A new agent process per task = a context reset at the phase boundary.
 // Started by a human (agent: false): the agent does not need to be able to spawn other agents via MCP.
 import { spawn as nodeSpawn } from 'node:child_process';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { ok, warn, fail, CrewError } from '../core/output.js';
 import { run as exec } from '../core/exec.js';
@@ -124,6 +124,7 @@ function defaultDeps() {
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     log: (line) => process.stderr.write(`[crew worker] ${line}\n`),
     now: () => Date.now(),
+    costOf: (file) => { try { return costFromLog(readFileSync(file, 'utf8')); } catch { return null; } },
   };
 }
 
@@ -133,12 +134,22 @@ async function getAdapter(adapters, host) {
   return adapters[host] ?? null;
 }
 
+/**
+ * What a task cost, from the agent's log: Claude's JSON result says total_cost_usd. → dollars, or null when the host
+ * does not report a cost (Codex reports tokens only).
+ */
+export function costFromLog(text = '') {
+  const all = [...String(text).matchAll(/"total_cost_usd"\s*:\s*([0-9]+(?:\.[0-9]+)?)/g)];
+  return all.length ? Number(all.at(-1)[1]) : null;
+}
+
 /** The worker loop. deps are stubbed in tests: { next, claim, release, viewIssue, spawn, adapters, ... }. */
 export async function runWorker(opts, deps = {}) {
   const d = { ...defaultDeps(), ...deps };
   const {
     host, area, tier = 'high', dry_run, wait,
     max_tasks = 5, max_failures = 3, task_timeout_min = 60,
+    budget_min = null, budget_usd = null,
   } = opts;
 
   const adapter = await getAdapter(d.adapters, host);
@@ -160,6 +171,11 @@ export async function runWorker(opts, deps = {}) {
   let conflicts = 0;
   let stopped_reason = null;
   let started = 0;
+  // the budget: wall-clock minutes for the whole run, and dollars when the host reports what a task cost
+  const runStart = d.now();
+  let spent = 0;
+  let costKnown = false;
+  const minutesLeft = () => (budget_min ? budget_min - (d.now() - runStart) / 60_000 : Infinity);
 
   const prevAgent = process.env.CREW_AGENT;
   const prevAgentId = process.env.CREW_AGENT_ID;
@@ -167,10 +183,18 @@ export async function runWorker(opts, deps = {}) {
   // Unique id: two workers of the same model on one machine are different agents (lease, review).
   const agentUid = `${agent}@${machineName()}-w${process.pid}`;
   process.env.CREW_AGENT_ID = agentUid;
-  const result = (extra = {}) => ({ done, failed, blocked: handed, stopped_reason, agent, ...extra });
+  const result = (extra = {}) => ({
+    done, failed, blocked: handed, stopped_reason, agent,
+    elapsed_min: Math.round((d.now() - runStart) / 6000) / 10,
+    cost_usd: costKnown ? Math.round(spent * 10000) / 10000 : null,
+    ...extra,
+  });
 
   try {
     while (started < max_tasks) {
+      // a task is not started when the budget is used up: say how far the run got instead
+      if (budget_min && minutesLeft() < 1) { stopped_reason = 'budget_time'; break; }
+      if (budget_usd && spent >= budget_usd) { stopped_reason = 'budget_cost'; break; }
       const nx = await call(d.next, { area, tier, tasks_only: true });
       if (nx.status === 'error') {
         if (nx.error?.code === 'paused') { stopped_reason = 'paused'; break; }
@@ -236,10 +260,13 @@ export async function runWorker(opts, deps = {}) {
       const res = await d.spawn(spec, {
         cwd: worktree,
         env: { ...spec.env, CREW_AGENT: agent, CREW_AGENT_ID: agentUid },
-        timeoutMs: task_timeout_min * 60_000,
+        // the time budget is a hard limit: a task gets no more than what is left of it
+        timeoutMs: Math.max(60_000, Math.min(task_timeout_min, minutesLeft()) * 60_000),
         logFile,
       });
       const took = fmtDuration(d.now() - t0);
+      const cost = d.costOf(logFile);
+      if (cost !== null) { spent += cost; costKnown = true; }
 
       if (res.error) {
         await call(d.release, { id, note: `crew worker: could not start ${host}: ${res.error}` });
@@ -266,7 +293,7 @@ export async function runWorker(opts, deps = {}) {
         failStreak = 0;
         d.log(`#${id}: ! ${state} in ${took} — handoff to the issue`);
       } else {
-        const why = res.timedOut ? `timeout ${task_timeout_min} min` : `agent exited with code ${res.code}, status ${state ?? 'unknown'}`;
+        const why = res.timedOut ? (budget_min && minutesLeft() < 1 ? `the time budget of ${budget_min} min ran out` : `timeout ${task_timeout_min} min`) : `agent exited with code ${res.code}, status ${state ?? 'unknown'}`;
         if (state === 'claimed') await call(d.release, { id, note: `crew worker: ${why}. Log: ${logFile}` });
         failed.push(id);
         failStreak++;
@@ -288,6 +315,8 @@ export async function runWorker(opts, deps = {}) {
     max_tasks: `task limit reached (${max_tasks})`,
     max_failures: `${max_failures} failures in a row`,
     claim_conflicts: '3 claim conflicts in a row',
+    budget_time: `the time budget of ${budget_min} min is used up`,
+    budget_cost: `the cost budget of $${budget_usd} is used up ($${Math.round(spent * 100) / 100})`,
   }[stopped_reason];
   const summary = `Worker ${agent} stopped: ${reasonText}. Delivered: ${done.length}, failures: ${failed.length}, handoffs: ${handed.length}`;
   const next_actions = {
@@ -296,6 +325,8 @@ export async function runWorker(opts, deps = {}) {
     max_tasks: [`crew worker --host ${host} — next batch`],
     max_failures: ['read the logs in .crew/logs/worker-*.log and the comments on the tasks', 'crew status'],
     claim_conflicts: ['crew status — who else is claiming tasks', 'tell the human'],
+    budget_time: [`crew worker --host ${host} --budget_min ${budget_min} — another run`, 'crew status'],
+    budget_cost: [`crew worker --host ${host} --budget_usd ${budget_usd} — another run, if the spend is fine`, 'crew metrics'],
   }[stopped_reason];
   const bad = stopped_reason === 'max_failures' || stopped_reason === 'claim_conflicts';
   return (bad ? warn : ok)(summary, { artifacts: result(), next_actions });
@@ -313,6 +344,8 @@ export default {
     { name: 'max_tasks', type: 'number', description: 'maximum number of tasks to take (default 5)' },
     { name: 'max_failures', type: 'number', description: 'stop after N failures in a row (default 3)' },
     { name: 'task_timeout_min', type: 'number', description: 'kill the agent after N minutes on a task (default 60)' },
+    { name: 'budget_min', type: 'number', description: 'time budget for the whole run in minutes: no new task after it, and a task gets at most what is left' },
+    { name: 'budget_usd', type: 'number', description: 'cost budget in dollars: stop once the tasks cost this much (only hosts that report a cost, e.g. claude)' },
     { name: 'wait', type: 'boolean', description: 'if the queue is empty — wait for new tasks (polls every 5 min)' },
     { name: 'dry_run', type: 'boolean', description: 'only show which task it would take and with which command' },
   ],

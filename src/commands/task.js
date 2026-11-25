@@ -48,6 +48,7 @@ export function syncLocalFiles(root, worktree) {
 }
 
 import { sectionEntries } from './adapters.js';
+import { liveSlots, repoSlotsDir, baseId, sameAgent } from '../core/session.js';
 import { taskMarkers } from '../core/guard.js';
 
 /** The "task is not yours" response for release / heartbeat / status. */
@@ -130,8 +131,10 @@ const next = {
       const mineLeft = deps.unfinished ? deps.unfinished(root, me) : deps.config ? [] : unfinishedWork(root, me);
       if (!mineLeft.length) return null;
       const u = mineLeft[0];
-      return ok(`Finish your own task first: #${u.id} (worktree ${u.path}, ${u.ahead} commit(s), no PR yet)`, {
-        artifacts: { kind: 'resume', issue: u.id, worktree: u.path, branch: u.branch, commits: u.ahead },
+      // the work of a session of mine that ended under another name: the lease and the worktree pin move to me
+      if (u.adopt_from) (deps.adopt ?? adoptTask)(u, me);
+      return ok(`Finish your own task first: #${u.id} (worktree ${u.path}, ${u.ahead} commit(s), no PR yet)${u.adopt_from ? `, taken over from your ended session ${u.adopt_from}` : ''}`, {
+        artifacts: { kind: 'resume', issue: u.id, worktree: u.path, branch: u.branch, commits: u.ahead, ...(u.adopt_from ? { adopted_from: u.adopt_from } : {}) },
         next_actions: [
           ...claimNextActions(u.id, u.path).slice(0, 2),
           `crew task heartbeat ${u.id} — the lease may be close to expiring`,
@@ -585,8 +588,14 @@ export function unfinishedWork(root, me, {
   issue = (id) => viewIssue(id),
   prHeads = () => (ghJson(['pr', 'list', '--state', 'open', '--limit', '100', '--json', 'headRefName'], { cwd: root, allowFail: true }) ?? []).map((p) => p.headRefName),
   ahead = (path) => Number(git(['rev-list', '--count', 'origin/main..HEAD'], { cwd: path, allowFail: true }).stdout) || 0,
+  live = () => liveSlots(baseId(me), { dir: repoSlotsDir(root) }),
 } = {}) {
-  const mine = taskWorktrees(list()).filter((w) => pin(w.path) === me);
+  // Mine: pinned to me, or to a sibling session of the same agent on this machine that is no longer running (slot
+  // names shift between runs: claude@pc#2 may come back as claude@pc). A live sibling's work is never taken.
+  const running = new Set(live());
+  const mine = taskWorktrees(list())
+    .map((w) => ({ ...w, pinned: pin(w.path) }))
+    .filter((w) => w.pinned === me || (w.pinned && sameAgent(w.pinned, me) && !running.has(w.pinned)));
   if (!mine.length) return [];
   const heads = new Set(prHeads());
   const out = [];
@@ -594,10 +603,23 @@ export function unfinishedWork(root, me, {
     if (heads.has(w.branch)) continue;
     let i = null;
     try { i = issue(w.id); } catch { continue; } // the issue was deleted or moved, or gh failed: not a reason to break task next
-    if (!i || i.state === 'CLOSED' || labelValue(i, 'status') !== 'claimed' || currentOwner(i.comments ?? [])?.agent !== me) continue;
-    out.push({ ...w, ahead: ahead(w.path) });
+    if (!i || i.state === 'CLOSED' || labelValue(i, 'status') !== 'claimed' || currentOwner(i.comments ?? [])?.agent !== w.pinned) continue;
+    const { pinned, ...rest } = w;
+    out.push({ ...rest, ahead: ahead(w.path), adopt_from: pinned === me ? null : pinned });
   }
   return out;
+}
+
+/**
+ * Take over my own task from a session of mine that ended under another name: the lease moves to the new name
+ * (a release of the old claim, then a claim), and the worktree is pinned to it. → the comment text posted.
+ */
+export function adoptTask(u, me, { post = (id, body) => comment(id, body), pinTo = pinId, now = () => new Date().toISOString() } = {}) {
+  const at = now();
+  const body = `${marker('release', { agent: me, at, of: u.adopt_from })}\n${marker('claim', { agent: me, at })}\n🔁 \`${me}\` continues its own task: the session \`${u.adopt_from}\` on this machine ended (same agent, the session got a new name).`;
+  post(u.id, body);
+  pinTo(u.path, me);
+  return body;
 }
 
 /** `git worktree list --porcelain` → [{ path, branch, id }] only for task branches crew/<id>-* (unlike parseWorktrees). */

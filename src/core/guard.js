@@ -12,6 +12,7 @@
 // Limitation: agents work under human accounts, so this does not stop a deliberate agent forging a marker.
 // The goal is to catch laziness and mistakes (weakened a test, "fixed" CI, approved itself).
 
+import { compareSemver } from './semver.js';
 import { isTrustedComment } from './issues.js';
 import { sameAgent } from './session.js';
 import { phaseProblems } from './discovery.js';
@@ -170,14 +171,11 @@ export function reviewState(comments = [], { headSha, author, authors = [], prLo
  * failure: a rule is violated (the agent must redo it); pending: all fine, waiting for an agent review.
  */
 /** The crew version that opened the PR (crew pr open stamps it), or null. */
-export const prCrewVersion = (body = '') => /<!-- crew:pr version=(\d+\.\d+\.\d+) -->/.exec(body)?.[1] ?? null;
+export const prCrewVersion = (body = '') => /<!-- crew:pr version=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) -->/.exec(body)?.[1] ?? null;
 /** The version pinned by the repo: CREW_HARNESS = "@gredescerber/agent-crew@1.2.3" (or a legacy github:…#v1.2.3). */
-export const pinnedVersion = (spec = '') => /@(\d+\.\d+\.\d+)\s*$|#v(\d+\.\d+\.\d+)\s*$/.exec(String(spec))?.slice(1).find(Boolean) ?? null;
-const older = (a, b) => {
-  const pa = a.split('.').map(Number); const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i];
-  return false;
-};
+export const pinnedVersion = (spec = '') => /@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$|#v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$/.exec(String(spec))?.slice(1).find(Boolean) ?? null;
+// SemVer order: a release candidate is older than its release (0.13.0-rc.1 < 0.13.0)
+const older = (a, b) => compareSemver(a, b) === -1;
 
 export function evaluateGuard({ files = [], body = '', issueBody = '', issueTrusted = true, prLogin = null, requiredVersion = null, comments = [], commits = [], headSha, risk = 'med', createdAt, config = {}, now = Date.now(), pendingFiles = [] }) {
   const problems = [];

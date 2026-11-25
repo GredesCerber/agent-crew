@@ -1,7 +1,7 @@
 // Minimal MCP server (stdio, JSON-RPC 2.0, one message per line).
 // Exposes crew commands as tools: crew_task_next, crew_task_claim, crew_check, ...
 // Connects to any MCP client: Claude Code, Codex, Cursor, etc. No dependencies.
-import { claimSlot, REFRESH_MS } from '../core/session.js';
+import { claimSlot, repoSlotsDir, REFRESH_MS } from '../core/session.js';
 import { baseAgentId, loadConfig } from '../core/config.js';
 import { LOCAL_VERSION } from '../core/version.js';
 import { createInterface } from 'node:readline';
@@ -106,14 +106,25 @@ export function startServer() {
   const dir = process.env.CREW_PROJECT_DIR;
   if (dir && existsSync(dir)) process.chdir(dir);
   else if (dir) process.stderr.write(`crew mcp: CREW_PROJECT_DIR ${dir} does not exist (moved?): working in ${process.cwd()}; run crew adapters build in the project again\n`);
-  // One MCP server per agent session: take a free name slot (claude@pc, claude@pc#2, ...) unless CREW_AGENT_ID is set.
-  if (!process.env.CREW_AGENT_ID) {
-    const slot = claimSlot(baseAgentId()); // the raw base: never a live sibling's name (that would make claude@pc#2#2)
-    if (slot) {
-      process.env.CREW_AGENT_ID = slot.id;
-      setInterval(slot.refresh, REFRESH_MS).unref(); // a live session keeps its lock fresh; a crashed one goes stale
-      for (const ev of ['exit', 'SIGINT', 'SIGTERM']) process.once(ev, () => { slot.release(); if (ev !== 'exit') process.exit(0); });
-    }
+  // One MCP server per agent session: take a free name slot (claude@pc, claude@pc#2, ...) in this repository's lock
+  // folder, unless CREW_AGENT_ID is set. If the server moves to another project (MCP roots), the slot moves too.
+  let slot = null;
+  let slotDir = null;
+  const fixedId = !!process.env.CREW_AGENT_ID;
+  const takeSlot = () => {
+    if (fixedId) return;
+    const dirNow = repoSlotsDir(process.cwd());
+    if (slot && dirNow === slotDir) return;
+    slot?.release();
+    delete process.env.CREW_AGENT_ID;
+    slot = claimSlot(baseAgentId(), { dir: dirNow }); // the raw base: never a live sibling's name (claude@pc#2#2)
+    slotDir = dirNow;
+    if (slot) process.env.CREW_AGENT_ID = slot.id;
+  };
+  takeSlot();
+  if (!fixedId) {
+    setInterval(() => slot?.refresh(), REFRESH_MS).unref(); // a live session keeps its lock fresh; a crashed one goes stale
+    for (const ev of ['exit', 'SIGINT', 'SIGTERM']) process.once(ev, () => { slot?.release(); if (ev !== 'exit') process.exit(0); });
   }
   const rl = createInterface({ input: process.stdin });
   const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
@@ -122,7 +133,7 @@ export function startServer() {
   // a server already started inside a crew project stays there; roots only help one started somewhere else
   let inProject = false;
   try { inProject = !!loadConfig(process.cwd()).path; } catch { inProject = true; /* a broken config here: leave it to the tools to report */ }
-  const roots = projectRoots({ send, fixed: !!(dir && existsSync(dir)) || inProject });
+  const roots = projectRoots({ send, fixed: !!(dir && existsSync(dir)) || inProject, chdir: (d) => { process.chdir(d); takeSlot(); } });
   rl.on('line', async (line) => {
     if (!line.trim()) return;
     let msg;
