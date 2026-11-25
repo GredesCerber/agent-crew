@@ -60,10 +60,11 @@ const ROOTS_ID = 'crew-roots';
 /** The crew project inside one of the client's roots (file:// URIs): the folder whose crew.config.json is found. */
 export function projectFromRoots(list = []) {
   for (const r of list) {
-    let p;
-    try { p = fileURLToPath(String(r.uri ?? '')); } catch { continue; }
-    const found = loadConfig(p);
-    if (found.path) return found.root;
+    // a bad URI or a broken crew.config.json in one root (or a folder above it) skips that root, never the server
+    try {
+      const found = loadConfig(fileURLToPath(String(r.uri ?? '')));
+      if (found.path) return found.root;
+    } catch { /* next root */ }
   }
   return null;
 }
@@ -85,9 +86,12 @@ export function projectRoots({ send, fixed = false, chdir = (d) => process.chdir
       if (msg.method === 'initialize') supported = !!msg.params?.capabilities?.roots && !fixed;
       if (supported && (msg.method === 'notifications/initialized' || msg.method === 'notifications/roots/list_changed')) ask();
       if (msg.id === ROOTS_ID && !msg.method) {
-        const dirPath = projectFromRoots(msg.result?.roots ?? []);
-        if (dirPath) chdir(dirPath);
-        settle?.();
+        try {
+          const dirPath = projectFromRoots(msg.result?.roots ?? []);
+          if (dirPath) chdir(dirPath);
+        } finally {
+          settle?.();
+        }
         return true;
       }
       return false;
@@ -101,6 +105,7 @@ export function startServer() {
   // every crew command looks for crew.config.json from the working directory.
   const dir = process.env.CREW_PROJECT_DIR;
   if (dir && existsSync(dir)) process.chdir(dir);
+  else if (dir) process.stderr.write(`crew mcp: CREW_PROJECT_DIR ${dir} does not exist (moved?): working in ${process.cwd()}; run crew adapters build in the project again\n`);
   // One MCP server per agent session: take a free name slot (claude@pc, claude@pc#2, ...) unless CREW_AGENT_ID is set.
   if (!process.env.CREW_AGENT_ID) {
     const slot = claimSlot(baseAgentId()); // the raw base: never a live sibling's name (that would make claude@pc#2#2)
@@ -114,7 +119,10 @@ export function startServer() {
   const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
   // MCP roots: a client started from a global config (Antigravity, an editor) tells which folders are open; the crew
   // project among them becomes the working directory. CREW_PROJECT_DIR, when set, wins.
-  const roots = projectRoots({ send, fixed: !!(dir && existsSync(dir)) });
+  // a server already started inside a crew project stays there; roots only help one started somewhere else
+  let inProject = false;
+  try { inProject = !!loadConfig(process.cwd()).path; } catch { inProject = true; /* a broken config here: leave it to the tools to report */ }
+  const roots = projectRoots({ send, fixed: !!(dir && existsSync(dir)) || inProject });
   rl.on('line', async (line) => {
     if (!line.trim()) return;
     let msg;
@@ -123,7 +131,9 @@ export function startServer() {
     } catch {
       return send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
     }
-    if (roots.onMessage(msg)) return;
+    try {
+      if (roots.onMessage(msg)) return;
+    } catch { /* roots are a convenience: an error there must not cost the agent its tools */ }
     if (msg.method === 'tools/call') await roots.ready();
     try {
       const result = await handle(msg);

@@ -1,7 +1,7 @@
 // crew adapters build [--check] — generates configs for each host (Claude Code, Codex, ...)
 // from vendor-neutral sources: AGENTS.md, agents/roles/*.md, agents/skills/*/SKILL.md, crew.config.json.
 // A new host = a new file adapters/<host>/adapter.js. No need to touch the core.
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ok, fail } from '../core/output.js';
@@ -47,14 +47,59 @@ export function ignoreEntries(files) {
   return [...new Set(files.filter((f) => !f.commit).map((f) => entry(f.path)))];
 }
 
-/** Add the missing local entries to an existing .gitignore (a host added to a project later). → the lines added. */
+/** The section, in .gitignore or .git/info/exclude, that lists the files crew task claim copies into worktrees. */
+export const LOCAL_SECTION = '# crew: local files';
+
+/** Lines of the "# crew: local files" section of one ignore file (stops at a blank line or another comment). */
+export function sectionEntries(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+  const start = lines.findIndex((l) => l.trim() === LOCAL_SECTION);
+  if (start < 0) return [];
+  const out = [];
+  for (const l of lines.slice(start + 1)) {
+    const t = l.trim();
+    if (!t || t.startsWith('#')) break;
+    out.push(t);
+  }
+  return out;
+}
+
+/** Put entries into the section of an ignore file's text (creating it), in the file's own line endings. */
+export function addToSection(text, entries) {
+  const eol = /\r\n/.test(text) ? '\r\n' : '\n';
+  const lines = text ? text.split(/\r?\n/) : [];
+  const start = lines.findIndex((l) => l.trim() === LOCAL_SECTION);
+  if (start < 0) {
+    while (lines.length && lines.at(-1) === '') lines.pop();
+    return [...lines, ...(lines.length ? [''] : []), LOCAL_SECTION, ...entries, ''].join(eol);
+  }
+  let end = start + 1;
+  while (end < lines.length && lines[end].trim() && !lines[end].trim().startsWith('#')) end++;
+  lines.splice(end, 0, ...entries);
+  return lines.join(eol);
+}
+
+/**
+ * Keep this machine's agent configs out of git (some hold this machine's paths) without touching tracked files:
+ * missing entries go to .git/info/exclude, which is per clone and never makes the tree dirty (a .gitignore edit
+ * would, right after crew up --join). They go into its "# crew: local files" section, which crew task claim reads
+ * to copy the configs into task worktrees. → the entries added.
+ */
 export function ensureIgnored(root, files) {
-  const p = join(root, '.gitignore');
-  if (!existsSync(p)) return [];
-  const text = readFileSync(p, 'utf8');
-  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
-  const add = ignoreEntries(files).filter((e) => !have.has(e));
-  if (add.length) writeFileSync(p, `${text}${text.endsWith('\n') || !text ? '' : '\n'}# crew: local agent configs\n${add.join('\n')}\n`);
+  const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
+  const gitDir = join(root, '.git');
+  const ignore = read(join(root, '.gitignore'));
+  const exclude = join(gitDir, 'info', 'exclude');
+  const listed = new Set([...sectionEntries(ignore), ...sectionEntries(read(exclude))]);
+  const add = ignoreEntries(files).filter((e) => !listed.has(e));
+  if (!add.length) return [];
+  if (existsSync(gitDir) && statSync(gitDir).isDirectory()) {
+    mkdirSync(join(gitDir, 'info'), { recursive: true });
+    writeFileSync(exclude, addToSection(read(exclude), add));
+  } else {
+    // no repository yet (crew init writes .gitignore itself; this is a folder git does not know): .gitignore it is
+    writeFileSync(join(root, '.gitignore'), addToSection(ignore, add));
+  }
   return add;
 }
 
@@ -79,7 +124,15 @@ export async function buildFiles(root, config) {
       files.push({ ...f, host });
     }
   }
-  return { files, missing };
+  // two hosts may share a file (Codex and Antigravity both read .agents/skills/): write it once; if they disagree
+  // on its content, that is a bug in an adapter, not something to resolve by write order
+  const byPath = new Map();
+  for (const f of files) {
+    const seen = byPath.get(f.path);
+    if (!seen) byPath.set(f.path, f);
+    else if (seen.content !== f.content) throw new Error(`adapters ${seen.host} and ${f.host} generate different ${f.path}`);
+  }
+  return { files: [...byPath.values()], missing };
 }
 
 export default {
@@ -115,7 +168,7 @@ export default {
     // "0 of 26" read like a failure: say plainly that nothing needed changing, and that some files stay on this machine.
     const what = stale.length ? `${stale.length} of ${files.length} files updated` : `all ${files.length} files already up to date`;
     return ok(`Agent configs for ${config.hosts.join(', ')}: ${what} (${local.length} of them are local to this machine, not committed)`, {
-      artifacts: { written: stale.map((f) => f.path), local_only: local, gitignore_added: ignored },
+      artifacts: { written: stale.map((f) => f.path), local_only: local, git_exclude_added: ignored },
       next_actions: ['restart agent sessions so they pick up the configs'],
     });
   },

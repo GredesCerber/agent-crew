@@ -7,6 +7,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ### Fixed
 - `crew up --join` and `crew adapters build` no longer leave a fresh clone dirty on Windows: a generated file that differs only in line endings (git checks out CRLF with `core.autocrlf=true`) is not rewritten (#1).
+- Configs of a host added to a project later (for example Antigravity's `.agents/plugins/crew/`, which holds this machine's path) are kept out of git in `.git/info/exclude` instead of an appended `.gitignore` section: the clone stays clean, it works with no `.gitignore` at all, and `crew task claim` now copies them into task worktrees (the appended section was never read there).
+- The crew MCP server no longer exits when a client's root (or a folder above it) has a broken `crew.config.json`; a server started inside a crew project stays there instead of following the client's roots; a `CREW_PROJECT_DIR` that does not exist is reported on stderr.
+- `crew up --check` warns that no agent is installed also when the only host is an app (Antigravity), and `crew adapters build` writes a file two hosts share (`.agents/skills/` for Codex and Antigravity) once.
 
 ## [0.12.0] — 2026-11-25
 

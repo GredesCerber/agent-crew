@@ -169,7 +169,7 @@ Re-running is safe. The repo is taken from the current folder (`gh repo view`) o
 crew up --join owner/name
 ```
 
-This accepts the invitation, clones the repo, configures git and runs `crew adapters build`, which creates the local agent configs (`.mcp.json`, `.codex/config.toml`, `.agents/plugins/crew/`, skills, roles) and adds them to `.gitignore`. They depend on the machine and are not committed; `crew task claim` copies them into each task worktree.
+This accepts the invitation, clones the repo, configures git and runs `crew adapters build`, which creates the local agent configs (`.mcp.json`, `.codex/config.toml`, `.agents/plugins/crew/`, skills, roles); the ones the committed `.gitignore` does not list yet go to `.git/info/exclude`, so the clone stays clean. They depend on the machine and are not committed; `crew task claim` copies them into each task worktree.
 
 An agent's name in tasks and commits is `CREW_AGENT` plus the machine name (`claude@alice-laptop`), added by `crew`. A second session on the same machine gets its own name automatically from the crew MCP server (`claude@alice-laptop#2`); the two count as one agent for review, so neither can approve the other. In a terminal outside your task folder, with several sessions running, crew asks you to use the MCP tools instead of guessing (`ambiguous_agent`).
 

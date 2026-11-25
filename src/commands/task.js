@@ -23,24 +23,15 @@ const isStaleNoOwner = (issue, lastCommitAt, now, leaseMinutes) =>
   isStale({ issueUpdatedAt: issue.updatedAt, lastCommitAt, now, leaseMinutes });
 
 /**
- * Local (uncommitted) agent configs from the .gitignore section "# crew: local files":
- * .mcp.json, .codex/config.toml, .claude/skills/, .claude/agents/, .agents/skills/ …
- * git worktree does not carry them over, and without them the agent in a task worktree is left without the crew MCP and skills.
+ * Local (uncommitted) agent configs listed in the "# crew: local files" section of .gitignore (crew init) and of
+ * .git/info/exclude (crew adapters build, for hosts added later): .mcp.json, .codex/config.toml, .claude/skills/,
+ * .agents/skills/, .agents/plugins/crew/ … git worktree does not carry them over, and without them the agent in a
+ * task worktree is left without the crew MCP and skills.
  */
 export function localAgentFiles(root) {
-  const p = join(root, '.gitignore');
-  if (!existsSync(p)) return [];
-  const lines = readFileSync(p, 'utf8').split(/\r?\n/);
-  const start = lines.findIndex((l) => l.trim() === '# crew: local files');
-  if (start < 0) return [];
-  const out = [];
-  for (const l of lines.slice(start + 1)) {
-    const t = l.trim();
-    if (!t || t.startsWith('#')) break;
-    if (t === '.crew/' || t.startsWith('!')) continue;
-    out.push(t.replace(/\/+$/, ''));
-  }
-  return out;
+  const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
+  const all = [...sectionEntries(read(join(root, '.gitignore'))), ...sectionEntries(read(join(root, '.git', 'info', 'exclude')))];
+  return [...new Set(all.filter((t) => t !== '.crew/' && !t.startsWith('!')).map((t) => t.replace(/\/+$/, '')))];
 }
 
 /** Copy the local agent configs from the root into the worktree (overwriting, so they stay fresh). */
@@ -56,6 +47,7 @@ export function syncLocalFiles(root, worktree) {
   return copied;
 }
 
+import { sectionEntries } from './adapters.js';
 import { taskMarkers } from '../core/guard.js';
 
 /** The "task is not yours" response for release / heartbeat / status. */

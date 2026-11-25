@@ -3,7 +3,7 @@
 Where agent-crew goes after 0.9. The order inside a section is the priority. Each item says why it matters and when it counts as done; it becomes an issue when someone starts it.
 The history of how we got here is in [`CHANGELOG.md`](../CHANGELOG.md) and [`ROADMAP-v1.md`](ROADMAP-v1.md) (done).
 
-## Where we are (0.11, in progress)
+## Where we are (0.12)
 - **Team loop:** GitHub Issues as the queue with leases, one task per PR, a review-first `crew task next`, cross-vendor review, `crew-guard` rules from `main`, deterministic merges in CI (`crew merge-ready`).
 - **Planning:** a discovery phase with research tasks and recorded decisions, then a PRD approved by a person, then `crew kickoff`.
 - **People:** a captain who can hand the role over, ideas and questions as issues, `crew digest` and `crew board` with no LLM involved, joining a project with one message, a solo mode.
@@ -16,7 +16,7 @@ How we pick what comes next:
 - Then less babysitting: work a person would otherwise have to watch.
 - Then more hosts.
 
-## Now: 0.11, keep the promises (moved from 0.10)
+## Now: keep the promises (moved from 0.10)
 1. **Session locks per repository.** Locks live in `crew-agents-<user>` for the whole machine, so two sessions in two unrelated repos look like siblings and get `ambiguous_agent`, and `crew doctor` says nothing.
    Done when locks are keyed by repo (remote URL or root path), `crew doctor` lists the live sessions of this repo, and a test runs two repos side by side.
 2. **Unfinished work survives a renamed session.** `resume` and fix delivery match the exact agent id. When slot names change between runs (`claude@pc#2` becomes `claude@pc`), the work is orphaned until its lease runs out.

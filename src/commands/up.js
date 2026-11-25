@@ -167,7 +167,7 @@ const PAID_PLANS = ['pro', 'team', 'business', 'enterprise', 'business_plus', 'e
  * protection: available (public, or a paid plan), unavailable (a private repo on the free plan: main cannot be
  * protected, so PR rules and checks bind nobody), unverified (the plan could not be read).
  */
-export function preflight(o, sh, me) {
+export function preflight(o, sh, me, { installed = (h) => tool(sh, h, ['--version']).code === 0 } = {}) {
   const blockers = [];
   const warnings = [];
   const repo = o.repo;
@@ -213,8 +213,7 @@ export function preflight(o, sh, me) {
   }
   if (tool(sh, 'crew', ['--version']).code !== 0) warnings.push('crew is not on PATH: the agents\' MCP config will not start (npm install -g @gredescerber/agent-crew)');
   const hosts = hostList(o.hosts).hosts;
-  // preflight is synchronous: an app host with no CLI (Antigravity) is checked by crew up itself, not counted here
-  const found = hosts.filter((h) => h === 'antigravity' || tool(sh, h, ['--version']).code === 0);
+  const found = hosts.filter((h) => installed(h));
   if (!found.length) warnings.push(`no agent found (${hosts.join(', ')}): install at least one before the team starts`);
   return { blockers, warnings, facts: { repo, exists: !!existing, visibility, plan, protection, agents: found } };
 }
@@ -243,7 +242,10 @@ async function lead(o, sh) {
   if (me.status === 'error') return me;
 
   // 1b. Look before writing: a team must not learn after setup that main cannot be protected.
-  const pre = preflight(o, sh, me);
+  // app hosts with no CLI (Antigravity) say themselves whether they are installed: ask the adapters first
+  const present = new Set();
+  for (const h of hostList(o.hosts).hosts) if (await hostInstalled(sh, h)) present.add(h);
+  const pre = preflight(o, sh, me, { installed: (h) => present.has(h) });
   if (o.check) {
     const opts = { artifacts: { ...pre.facts, blockers: pre.blockers, warnings: pre.warnings, steps: j.steps }, next_actions: pre.blockers.length ? pre.blockers : [`crew up ${o.dir ?? repo.split('/')[1]} --repo ${repo}${o.public ? ' --public' : ''} (the same command without --check)`] };
     if (pre.blockers.length) return fail('preflight', `crew up would stop: ${pre.blockers.length} problem(s) to fix first`, { cause_hint: pre.blockers[0], retry: `fix it, then crew up ... --check again`, stop_when: 'a blocker only a person can change (plan, rights, repo name): tell them', ...opts });
