@@ -38,6 +38,10 @@ export function run(cmd, args = [], { cwd, allowFail = false, input } = {}) {
         stop_when: 'which GitHub repo to use is a human decision: ask them',
       });
     }
+    // Claude Code cloud sessions reach GitHub through a proxy that blocks GraphQL (gh issue / gh pr); only gh api (REST)
+    // gets through. Say so instead of a bare 403, so the agent does not retry it or work around crew.
+    const blocked = graphqlBlocked(cmd, args, out.stderr);
+    if (blocked) throw blocked;
     throw new CrewError('command_failed', `${cmd} ${args.join(' ')} exited with code ${out.code}`, {
       cause_hint: out.stderr.split('\n').slice(0, 5).join(' | '),
       stop_when: 'the error repeats twice',
@@ -56,6 +60,22 @@ export function runShell(line, { cwd, timeout_s } = {}) {
   // Via supervisor: on timeout the whole tree is killed (npm test, dev server), not just the shell.
   const r = runSupervised({ cmd: line, shell: true, cwd, timeoutMs });
   return { code: r.code, stdout: r.stdout ?? '', stderr: r.stderr || r.error || '', timedOut: !!r.timedOut };
+}
+
+/** Running inside a Claude Code cloud session (claude.ai/code)? */
+export const cloudSession = (env = process.env) => env.CLAUDE_CODE_REMOTE === 'true';
+
+/**
+ * A gh failure that is the cloud session's GitHub proxy refusing GraphQL (gh issue / gh pr), not a crew or GitHub
+ * problem. → a CrewError saying so, or null.
+ */
+export function graphqlBlocked(cmd, args = [], stderr = '', env = process.env) {
+  if (cmd !== 'gh' || !cloudSession(env) || args[0] === 'api' || !/\b403\b|forbidden/i.test(stderr)) return null;
+  return new CrewError('gh_graphql_blocked', `gh ${args.slice(0, 2).join(' ')} is blocked in this cloud session (GitHub GraphQL returns 403 here)`, {
+    cause_hint: 'Claude Code on the web allows only REST calls (gh api) through its GitHub proxy; this crew command still uses gh issue / gh pr',
+    retry: 'run this step on a machine with crew (crew up --join), or ask the human; do not bypass crew with plain git pushes',
+    stop_when: 'immediately: tell the human that crew is not usable in this cloud session yet',
+  });
 }
 
 export const git = (args, opts) => run('git', args, opts);

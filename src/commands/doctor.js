@@ -7,6 +7,7 @@ import { loadConfig, agentId } from '../core/config.js';
 import { LOCAL_VERSION, updateHint } from '../core/version.js';
 import { loadAdapter } from './adapters.js';
 import { allLiveSlots, repoSlotsDir } from '../core/session.js';
+import { actionsHealth } from './tick.js';
 
 const probe = (cmd, args) => {
   const r = run(cmd, args, { allowFail: true });
@@ -48,6 +49,9 @@ export default {
       // agent sessions of this repository on this machine (sessions in other repos are not siblings)
       sessions: allLiveSlots({ dir: repoSlotsDir(root) }),
     };
+    // GitHub Actions of this repo: when they do not run, nothing scheduled happens (leases, merges, digest)
+    const actions = path && items.gh_auth ? actionsHealth() : { state: 'unknown', reason: 'no project or gh not signed in' };
+    items.actions = actions.state === 'blocked' ? `blocked: ${actions.reason}` : actions.state;
     // a host with a CLI answers --version; an app with no command on PATH (Antigravity) says itself whether it is installed
     for (const h of config.hosts ?? []) {
       const a = await loadAdapter(h);
@@ -67,7 +71,7 @@ export default {
     const hint = updateHint();
     const wiring = path ? hostWiring(root, config.hosts ?? []) : [];
     if (wiring.length) items.wiring = wiring;
-    const notes = [...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
+    const notes = [...(actions.state === 'blocked' ? [`GitHub Actions do not run in this repo (${actions.reason}): run crew tick --every 15 on one machine until the repo owner fixes it, or move the repo to an owner whose Actions run`] : []), ...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
     return ok(notes.length ? `Environment OK, but ${notes.join('; ')}` : 'Environment ready', {
       status: notes.length ? 'warning' : 'success',
       artifacts: items,

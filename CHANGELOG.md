@@ -6,6 +6,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 ## [Unreleased]
 
 ### Added
+- **`crew tick [--every 15]`: working without GitHub Actions.** When the repo owner's Actions do not run (a locked or over-limit account), one machine does their scheduled work: return expired leases, recompute crew-guard, merge ready PRs, promote waiting tasks, update the digest. Each step runs on its own. `crew doctor` reports `actions: blocked` with GitHub's reason.
+- Claude Code cloud sessions are recognized: the agent is `claude@cloud-<session>` (not `human@<container>`), a shell inside Claude Code counts as the Claude agent, and a GraphQL 403 from the cloud's GitHub proxy is reported as `gh_graphql_blocked` with what to do.
 - **`crew worker --budget-min N` and `--budget-usd X`.** No new task after the time budget, and a task gets at most what is left of it; the run stops once the tasks cost the dollar budget (Claude reports a cost in its JSON result; Codex does not, so `cost_usd` stays null). The answer says how far it got: `elapsed_min`, `cost_usd`.
 - `crew doctor` lists the live agent sessions of this repository on this machine.
 

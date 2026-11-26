@@ -74,8 +74,17 @@ export function loadEvent(config, root) {
 }
 
 /** Short machine name for the agent id: "petya-laptop". */
-export const machineName = () =>
-  (hostname().split('.')[0] || 'host').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'host';
+/**
+ * This machine's name in agent ids. A Claude Code cloud session has a throwaway container name, so it is named after
+ * its session instead: cloud-<last 8 of the session id>, stable while the session lives and different per session.
+ */
+export const machineName = (env = process.env) => {
+  if (env.CLAUDE_CODE_REMOTE === 'true') {
+    const tail = String(env.CLAUDE_CODE_REMOTE_SESSION_ID ?? '').replace(/[^A-Za-z0-9]/g, '').slice(-8).toLowerCase();
+    return tail ? `cloud-${tail}` : 'cloud';
+  }
+  return (hostname().split('.')[0] || 'host').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'host';
+};
 
 /**
  * Agent id: <vendor>[/<model>]@<machine>, e.g. claude@petya-laptop, codex/gpt-x@masha-pc.
@@ -99,8 +108,10 @@ export function agentId(env = process.env) {
 
 /** vendor[/model]@machine from CREW_AGENT, without any session number: what a new session claims a slot for. */
 export function baseAgentId(env = process.env) {
-  const raw = env.CREW_AGENT || 'human';
-  return raw.includes('@') ? raw : `${raw}@${machineName()}`;
+  // A shell inside Claude Code (CLAUDECODE=1, also in cloud sessions) is the Claude agent, not a person, even where
+  // no crew config set CREW_AGENT (a cloud session that only has the repo)
+  const raw = env.CREW_AGENT || (env.CLAUDE_CODE_REMOTE === 'true' || env.CLAUDECODE === '1' ? 'claude' : 'human');
+  return raw.includes('@') ? raw : `${raw}@${machineName(env)}`;
 }
 
 /**
