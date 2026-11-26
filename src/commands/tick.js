@@ -1,7 +1,8 @@
 // crew tick [--every 15] — run on this machine what the repo's scheduled CI job does, for when GitHub Actions do not
 // run (a locked or over-limit account, an outage): return expired leases, recompute crew-guard, merge ready PRs,
 // promote waiting tasks, update the digest. Every step goes through gh like CI does, with the caller's account.
-// What it cannot replace: a required check counts only from GitHub Actions, so main stays blocked for normal merges.
+// With Actions down it also runs the `check` job here (src/core/localci.js) and posts the status; main protection counts
+// it after `crew github setup --local_checks --apply`.
 import { ok, warn } from '../core/output.js';
 import { ghJson } from '../core/exec.js';
 import { loadConfig } from '../core/config.js';
@@ -9,6 +10,7 @@ import taskCmds from './task.js';
 import guard from './guard.js';
 import mergeReady from './merge-ready.js';
 import digest from './digest.js';
+import { localChecks } from '../core/localci.js';
 
 const byName = (name) => taskCmds.find((c) => c.name === name);
 
@@ -47,9 +49,10 @@ export async function tickOnce({ steps = defaultSteps() } = {}) {
   return out;
 }
 
-function defaultSteps() {
+export function defaultSteps({ checks = false } = {}) {
   return [
     ['sweep', () => byName('task sweep').run({})],
+    ...(checks ? [['checks', () => localChecks()]] : []),
     ['guard', () => {
       const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number'], { allowFail: true }) ?? [];
       for (const p of prs) { try { guard.run({ pr: p.number, report: true }); } catch { /* next PR */ } }
@@ -67,15 +70,18 @@ export default {
   agent: false,
   args: [
     { name: 'every', type: 'number', description: 'repeat every N minutes until Ctrl+C (CI runs every 15)' },
+    { name: 'checks', type: 'boolean', description: 'also run crew check for open PRs here and post the check status (on by itself while Actions are blocked)' },
+    { name: 'no_checks', type: 'boolean', description: 'never run PR checks on this machine' },
   ],
-  async run({ every } = {}, deps = {}) {
+  async run({ every, checks, no_checks } = {}, deps = {}) {
     if (!deps.steps) loadConfig();
     const health = (deps.health ?? actionsHealth)();
+    const localCi = !no_checks && (checks || health.state === 'blocked');
     const note = health.state === 'blocked'
-      ? `GitHub Actions do not run in this repo (${health.reason}): crew tick does their scheduled work, but required checks on main still count only from Actions, so PRs cannot merge normally until the repo owner fixes it or the repo moves to an owner whose Actions run`
+      ? `GitHub Actions do not run in this repo (${health.reason}): crew tick does their work here, PR checks included${no_checks ? ' (not with --no_checks)' : ''}. Main protection counts these statuses only after a repo admin runs crew github setup --local_checks --apply; run crew github setup --apply again once Actions work`
       : null;
     const pass = async () => {
-      const steps = await tickOnce(deps.steps ? { steps: deps.steps } : {});
+      const steps = await tickOnce({ steps: deps.steps ?? defaultSteps({ checks: localCi }) });
       const failed = steps.filter((s) => s.status === 'error');
       if (!deps.quiet) process.stderr.write(`[crew tick] ${new Date().toISOString().slice(0, 16)} ${steps.map((s) => `${s.step}: ${s.status}`).join(', ')}\n`);
       return { steps, failed };

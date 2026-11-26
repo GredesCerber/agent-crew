@@ -54,7 +54,7 @@ test('crew tick: every scheduled step runs; one failing does not stop the rest',
   const r = await tick.run({}, { steps, health: () => blocked, quiet: true });
   assert.equal(r.status, 'warning');
   assert.match(r.next_actions[0], /GitHub Actions do not run in this repo \(account is locked/);
-  assert.match(r.next_actions[0], /required checks on main still count only from Actions/);
+  assert.match(r.next_actions[0], /crew github setup --local_checks --apply/);
   const fine = await tick.run({}, { steps: steps.filter(([n]) => n !== 'guard'), health: () => ({ state: 'ok' }), quiet: true });
   assert.equal(fine.status, 'success');
   assert.equal(findCommand(['tick']).name, 'tick');

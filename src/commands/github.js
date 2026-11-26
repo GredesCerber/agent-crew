@@ -27,7 +27,10 @@ export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
  * Pure function: the plan of `gh api` calls, with no network access.
  * Every step is idempotent: PUT/PATCH overwrite the state; if the object is missing (404) — `if_missing` (POST).
  */
-export function planSetup({ repo, harness = DEFAULT_HARNESS, labels = [], branch = 'main' }) {
+export function planSetup({ repo, harness = DEFAULT_HARNESS, labels = [], branch = 'main', localChecks = false }) {
+  // localChecks: GitHub Actions do not run, so `check` and crew-guard come from crew tick on a team machine (a person's
+  // token). -1 = any source. The cost: anyone with push access could set these statuses by hand. Off again by default.
+  const source = localChecks ? -1 : ACTIONS_APP_ID;
   const variable = { name: 'CREW_HARNESS', value: harness };
   return [
     {
@@ -56,12 +59,12 @@ export function planSetup({ repo, harness = DEFAULT_HARNESS, labels = [], branch
     })),
     {
       id: `branch-protection:${branch}`,
-      summary: `protection for ${branch}: PRs only, green ${REQUIRED_CHECKS.join(' and ')} (crew-guard counts the agent review), no force-push`,
+      summary: `protection for ${branch}: PRs only, green ${REQUIRED_CHECKS.join(' and ')} (crew-guard counts the agent review)${localChecks ? ' from any source (crew tick on a team machine)' : ' from GitHub Actions'}, no force-push`,
       method: 'PUT',
       path: `repos/${repo}/branches/${encodeURIComponent(branch)}/protection`,
       body: {
         // strict: false — do not require a rebase onto fresh main before every merge (there are many PRs at a hackathon)
-        required_status_checks: { strict: false, checks: REQUIRED_CHECKS.map((context) => ({ context, app_id: ACTIONS_APP_ID })) },
+        required_status_checks: { strict: false, checks: REQUIRED_CHECKS.map((context) => ({ context, app_id: source })) },
         // An admin (the harness developer) can merge bypassing this — that is how agent rules and CI are updated,
         // which crew-guard does not let agents change. Agents are forbidden from --admin in AGENTS.md.
         enforce_admins: false,
@@ -103,7 +106,8 @@ export function mergeProtection(body, existing) {
       const app = Number.isInteger(c.app_id) && c.app_id > 0 ? c.app_id : -1;
       const mine = ours.get(c.context);
       if (mine) {
-        if (app !== -1 && app !== mine.app_id) blockers.push(`the required check "${c.context}" on main comes from another app (id ${app}); crew needs its own "${c.context}" from GitHub Actions: rename one of them first`);
+        // crew's own source wins for crew's own checks: Actions by default, any source with --local_checks
+        if (app !== -1 && mine.app_id !== -1 && app !== mine.app_id) blockers.push(`the required check "${c.context}" on main comes from another app (id ${app}); crew needs its own "${c.context}" from GitHub Actions: rename one of them first`);
         continue;
       }
       out.required_status_checks.checks.push({ context: c.context, app_id: app });
@@ -192,9 +196,10 @@ export default {
     { name: 'branch', type: 'string', description: 'branch to protect (default main)' },
     { name: 'apply', type: 'boolean', description: 'execute the plan (without the flag — only show it)' },
     { name: 'no_protection', type: 'boolean', description: 'do not touch the protection of the branch (a private repo on the free plan cannot have one)' },
+    { name: 'local_checks', type: 'boolean', description: 'GitHub Actions do not run here: count check and crew-guard from crew tick on a team machine (any source). Run setup again without it once Actions work' },
   ],
   // cwd and deps.run — for calls from crew up (project folder and a gh stub in tests); not passed from the CLI.
-  run({ repo, harness = DEFAULT_HARNESS, branch = 'main', apply = false, cwd, no_protection = false }, deps = {}) {
+  run({ repo, harness = DEFAULT_HARNESS, branch = 'main', apply = false, cwd, no_protection = false, local_checks = false }, deps = {}) {
     const sh = deps.run ?? run;
     const { config, root } = loadConfig(cwd);
     if (repo !== undefined && !REPO_RE.test(String(repo))) {
@@ -209,7 +214,7 @@ export default {
       });
     }
     const labels = allLabels(config);
-    const plan = planSetup({ repo: resolved ?? '<owner>/<name>', harness, labels, branch });
+    const plan = planSetup({ repo: resolved ?? '<owner>/<name>', harness, labels, branch, localChecks: local_checks });
     // an existing repo keeps its own required checks and review rules: crew adds to them, never removes them
     let merged = { kept: [], warnings: [], blockers: [] };
     // read only when applying: the dry run makes no GitHub calls; --apply reads the rules first and keeps them
@@ -223,6 +228,7 @@ export default {
       merged = mergeProtection(plan.at(-1).body, prot.data);
       plan.at(-1).body = merged.body;
       if (merged.kept.length) plan.at(-1).summary += `; kept from the existing rules: ${merged.kept.join(', ')}`;
+      if (local_checks) merged.warnings.push(`${branch} counts check and crew-guard from any source: keep crew tick running on a team machine, and run crew github setup --apply (without --local_checks) once GitHub Actions work again`);
     }
 
     if (!apply) {
