@@ -1,10 +1,47 @@
 import { spawnSync } from 'node:child_process';
 import { CrewError } from './output.js';
 import { runSupervised } from './proc.js';
+import { ghViaRest } from './ghrest.js';
+
+/** Use the REST layer for gh issue/pr/repo/label? In Claude Code cloud sessions (GraphQL is blocked there), or on request. */
+export const restMode = (env = process.env) => env.CREW_GH_REST === '1' || (env.CLAUDE_CODE_REMOTE === 'true' && env.CREW_GH_REST !== '0');
+
+/**
+ * owner/name of the repo for REST paths. gh fills {owner}/{repo} from a github.com remote, but in a cloud session
+ * origin may point at a git proxy (…/git/owner/name): its last two path parts are still the repo. GH_REPO wins.
+ */
+export function repoFromRemote(url = '', env = process.env) {
+  if (env.GH_REPO && /^[\w.-]+\/[\w.-]+$/.test(env.GH_REPO)) return env.GH_REPO;
+  const m = /([\w.-]+)[/:]([\w.-]+?)(?:\.git)?\/?$/.exec(String(url).trim());
+  return m && !/^\d+$/.test(m[1]) ? `${m[1]}/${m[2]}` : null;
+}
+
+/** gh api through the real gh (REST only), for the REST layer: → { code, data, stderr }. */
+function restApi(cwd) {
+  let repo;
+  const resolveRepo = () => {
+    if (repo !== undefined) return repo;
+    const r = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd, encoding: 'utf8', shell: false, windowsHide: true });
+    return (repo = r.status === 0 ? repoFromRemote(r.stdout) : null);
+  };
+  return (method, rawPath, body) => {
+    const own = rawPath.includes('{owner}/{repo}') ? resolveRepo() : null;
+    const path = own ? rawPath.replace('{owner}/{repo}', own) : rawPath;
+    const args = ['api', '-X', method, path, '-H', 'Accept: application/vnd.github+json'];
+    if (body !== undefined) args.push('--input', '-');
+    const r = spawnSync('gh', args, { cwd, input: body === undefined ? undefined : JSON.stringify(body), encoding: 'utf8', shell: false, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+    if (r.error) return { code: -1, data: null, stderr: String(r.error.message) };
+    let data = null;
+    try { data = r.stdout ? JSON.parse(r.stdout) : null; } catch { data = null; }
+    return { code: r.status ?? -1, data, stderr: (r.stderr || r.stdout || '').trim() };
+  };
+}
 
 /** Run an external command without a shell (cross-platform, no injection). */
 export function run(cmd, args = [], { cwd, allowFail = false, input } = {}) {
-  const res = spawnSync(cmd, args, {
+  // gh issue / gh pr where GraphQL is blocked: the same command over REST, the same JSON back
+  const viaRest = cmd === 'gh' && args[0] !== 'api' && restMode() ? ghViaRest(args, { api: restApi(cwd), input }) : null;
+  const res = viaRest ? { status: viaRest.code, stdout: viaRest.stdout, stderr: viaRest.stderr } : spawnSync(cmd, args, {
     cwd,
     input,
     encoding: 'utf8',
