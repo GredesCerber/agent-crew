@@ -97,3 +97,31 @@ test('ECC: a role preset from a (stubbed) clone, the profile\'s avoid list, the 
   assert.equal(findCommand(['skills']).name, 'skills');
   assert.ok(!agentCommands.some((c) => c.name.startsWith('skills')), 'humans choose the skill set, agents do not');
 });
+
+test('adapters build carries a skill\'s other files (scripts, references, binaries) next to its SKILL.md', async () => {
+  const { buildFiles, needsWrite, skillResources, MAX_RESOURCE_BYTES } = await import('../src/commands/adapters.js');
+  const root = project({ hosts: ['claude', 'codex'] });
+  const dir = join(root, 'agents', 'skills', 'pdf-tools');
+  skill(join(root, 'agents', 'skills'), 'pdf-tools');
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
+  writeFileSync(join(dir, 'scripts', 'fill.py'), 'print("x")\n');
+  writeFileSync(join(dir, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]));
+  writeFileSync(join(dir, 'huge.bin'), Buffer.alloc(MAX_RESOURCE_BYTES + 1));
+  mkdirSync(join(dir, 'node_modules', 'x'), { recursive: true });
+  writeFileSync(join(dir, 'node_modules', 'x', 'i.js'), '');
+  assert.deepEqual(skillResources(dir).map((r) => r.rel), ['logo.png', 'scripts/fill.py'], 'no SKILL.md, no node_modules, nothing huge');
+
+  const { files } = await buildFiles(root, config(root));
+  const at = (p) => files.find((f) => f.path === p);
+  for (const base of ['.claude/skills/pdf-tools', '.agents/skills/pdf-tools']) {
+    assert.ok(at(`${base}/SKILL.md`), base);
+    assert.equal(at(`${base}/scripts/fill.py`).content.toString(), 'print("x")\n');
+    assert.ok(at(`${base}/logo.png`).content.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])), 'bytes as they are');
+    assert.equal(at(`${base}/logo.png`).commit, at(`${base}/SKILL.md`).commit);
+  }
+  const png = at('.claude/skills/pdf-tools/logo.png');
+  assert.equal(needsWrite(root, png), true);
+  mkdirSync(join(root, '.claude', 'skills', 'pdf-tools'), { recursive: true });
+  writeFileSync(join(root, png.path), png.content);
+  assert.equal(needsWrite(root, png), false);
+});

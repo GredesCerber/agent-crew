@@ -20,9 +20,43 @@ export function readSources(root) {
     .map((f) => ({ name: f.replace(/\.md$/, ''), content: readFileSync(join(root, 'agents', 'roles', f), 'utf8') }));
   const skills = read(join(root, 'agents', 'skills'))
     .filter((d) => existsSync(join(root, 'agents', 'skills', d, 'SKILL.md')))
-    .map((d) => ({ name: d, content: readFileSync(join(root, 'agents', 'skills', d, 'SKILL.md'), 'utf8') }));
+    .map((d) => ({ name: d, content: readFileSync(join(root, 'agents', 'skills', d, 'SKILL.md'), 'utf8'), resources: skillResources(join(root, 'agents', 'skills', d)) }));
   return { roles, skills };
 }
+
+/** Largest resource file of a skill that is copied (a skill is instructions plus small helpers, not a data store). */
+export const MAX_RESOURCE_BYTES = 1024 * 1024;
+
+/**
+ * The other files of a skill folder (scripts, references, templates), as bytes: a skill's SKILL.md often points at
+ * them by relative path, so a host that gets SKILL.md alone gets a broken skill. → [{ rel, content: Buffer }]
+ */
+export function skillResources(dir) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (!e.isFile()) continue;
+    const rel = join(e.parentPath ?? e.path, e.name).slice(dir.length + 1).replace(/\\/g, '/');
+    if (rel === 'SKILL.md' || rel.split('/').some((part) => part === '.git' || part === 'node_modules')) continue;
+    const full = join(dir, rel);
+    if (statSync(full).size > MAX_RESOURCE_BYTES) continue;
+    out.push({ rel, content: readFileSync(full) });
+  }
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+
+/** Each generated <host dir>/skills/<name>/SKILL.md gets the skill's other files next to it, with the same commit flag. */
+export function withResources(files, skills) {
+  const byName = new Map(skills.map((s) => [s.name, s.resources ?? []]));
+  const out = [];
+  for (const f of files) {
+    out.push(f);
+    const m = /^(.*\/skills\/([^/]+))\/SKILL\.md$/.exec(f.path);
+    for (const r of (m && byName.get(m[2])) || []) out.push({ path: `${m[1]}/${r.rel}`, commit: f.commit, content: r.content, host: f.host });
+  }
+  return out;
+}
+
+const same = (a, b) => (Buffer.isBuffer(a) || Buffer.isBuffer(b) ? Buffer.from(a).equals(Buffer.from(b)) : a === b);
 
 /** Simple frontmatter parsing: --- key: value --- */
 export function frontmatter(md) {
@@ -110,7 +144,9 @@ const lf = (s) => s.replace(/\r\n/g, '\n');
  */
 export function needsWrite(root, f) {
   const p = join(root, f.path);
-  return !existsSync(p) || lf(readFileSync(p, 'utf8')) !== lf(f.content);
+  if (!existsSync(p)) return true;
+  if (Buffer.isBuffer(f.content)) return !readFileSync(p).equals(f.content); // a skill's resource file: bytes as they are
+  return lf(readFileSync(p, 'utf8')) !== lf(f.content);
 }
 
 export async function buildFiles(root, config) {
@@ -120,9 +156,8 @@ export async function buildFiles(root, config) {
   for (const host of config.hosts ?? []) {
     const adapter = await loadAdapter(host);
     if (!adapter) { missing.push(host); continue; }
-    for (const f of adapter.generate({ root, config, ...sources, frontmatter, platform: process.platform })) {
-      files.push({ ...f, host });
-    }
+    const generated = adapter.generate({ root, config, ...sources, frontmatter, platform: process.platform }).map((f) => ({ ...f, host }));
+    files.push(...withResources(generated, sources.skills));
   }
   // two hosts may share a file (Codex and Antigravity both read .agents/skills/): write it once; if they disagree
   // on its content, that is a bug in an adapter, not something to resolve by write order
@@ -130,7 +165,7 @@ export async function buildFiles(root, config) {
   for (const f of files) {
     const seen = byPath.get(f.path);
     if (!seen) byPath.set(f.path, f);
-    else if (seen.content !== f.content) throw new Error(`adapters ${seen.host} and ${f.host} generate different ${f.path}`);
+    else if (!same(seen.content, f.content)) throw new Error(`adapters ${seen.host} and ${f.host} generate different ${f.path}`);
   }
   return { files: [...byPath.values()], missing };
 }
