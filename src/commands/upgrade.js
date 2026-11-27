@@ -10,7 +10,7 @@ import { ok, fail } from '../core/output.js';
 import { git, gh } from '../core/exec.js';
 import { HARNESS_ROOT, DEFAULT_CONFIG } from '../core/config.js';
 import { LOCAL_VERSION } from '../core/version.js';
-import { buildFiles } from './adapters.js';
+import { buildFiles, needsWrite } from './adapters.js';
 
 /** Files agent-crew owns in a product repo: [source in the package, destination in the repo]. */
 export const OWNED = [
@@ -98,6 +98,17 @@ export function planUpgrade(repo, { files = ownedFiles(), defaults = DEFAULT_CON
 
 const summarize = (ops) => ops.map((o) => (o.op === 'rename' ? `rename ${o.from} -> ${o.path}` : `${o.op === 'delete' ? 'delete' : o.kind} ${o.path}`));
 
+/**
+ * Committed agent configs that crew adapters build would change now (a new hook, a skill's resource files): a new
+ * crew can change only these, and then the package files alone would say "up to date" while the project lags.
+ */
+export async function staleGenerated(root, { build = buildFiles, stale = needsWrite } = {}) {
+  const cfgPath = join(root, 'crew.config.json');
+  if (!existsSync(cfgPath)) return [];
+  const { files } = await build(root, JSON.parse(readFileSync(cfgPath, 'utf8')));
+  return files.filter((f) => f.commit && stale(root, f)).map((f) => f.path);
+}
+
 export default {
   name: 'upgrade',
   summary: 'Update this project to the installed agent-crew: rules, skills, workflows, configs (and migrate from hk); --apply opens a PR',
@@ -117,11 +128,12 @@ export default {
     };
     let plan = planUpgrade(repo);
     const branch = `crew/upgrade-${LOCAL_VERSION}`;
-    let lines = summarize(plan.ops);
+    const regenLines = async () => (await staleGenerated(root).catch(() => [])).map((p) => `regenerate ${p}`);
+    let lines = [...summarize(plan.ops), ...(plan.ops.length ? [] : await regenLines())];
     if (!apply) {
-      return ok(plan.ops.length ? `crew upgrade to ${LOCAL_VERSION}: ${plan.ops.length} changes (dry run)${plan.legacy ? ', migrating from hk' : ''}` : `Already up to date with agent-crew ${LOCAL_VERSION}`, {
+      return ok(lines.length ? `crew upgrade to ${LOCAL_VERSION}: ${lines.length} changes (dry run)${plan.legacy ? ', migrating from hk' : ''}` : `Already up to date with agent-crew ${LOCAL_VERSION}`, {
         artifacts: { version: LOCAL_VERSION, legacy: plan.legacy, changes: lines, config_added: plan.config_added },
-        next_actions: plan.ops.length ? ['crew upgrade --apply (creates a branch and a PR; agent configs are regenerated too)'] : ['nothing to do'],
+        next_actions: lines.length ? ['crew upgrade --apply (creates a branch and a PR; agent configs are regenerated too)'] : ['nothing to do'],
       });
     }
     if (git(['status', '--porcelain', '--untracked-files=all'], { cwd: root }).stdout.trim()) {
@@ -144,8 +156,9 @@ export default {
       git(['branch', '-D', branch], { cwd: root, allowFail: true });
     };
     plan = planUpgrade(repo);
-    lines = summarize(plan.ops); // the PR describes what is applied on the base, not what the old checkout looked like
-    if (!plan.ops.length) { back(); return ok(`Already up to date with agent-crew ${LOCAL_VERSION}`); }
+    // the PR describes what is applied on the base, not what the old checkout looked like
+    lines = [...summarize(plan.ops), ...(plan.ops.length ? [] : await regenLines())];
+    if (!lines.length) { back(); return ok(`Already up to date with agent-crew ${LOCAL_VERSION}`); }
     try {
     for (const o of plan.ops) {
       if (o.op === 'rename') git(['mv', o.from, o.path], { cwd: root });

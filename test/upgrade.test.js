@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planUpgrade, mergeConfig, migrateGitignore, ownedFiles } from '../src/commands/upgrade.js';
+import { planUpgrade, mergeConfig, migrateGitignore, ownedFiles, staleGenerated } from '../src/commands/upgrade.js';
 import { parseMarkers } from '../src/core/issues.js';
 import { reviewState } from '../src/core/guard.js';
 import { prdApproval } from '../src/core/prd.js';
@@ -169,4 +169,20 @@ test('crew-guard: a human waiver lifts paperwork rules for this commit only; pro
   assert.ok(prot.problems.some((p) => p.rule === 'protected_paths'), 'protected files cannot be waived');
   const bot = evaluateGuard({ ...base, comments: waivers.map((c) => ({ ...c, author: { login: 'github-actions[bot]' } })) });
   assert.equal(bot.waived.length, 0, 'bots cannot waive');
+});
+
+test('staleGenerated: committed agent configs that a new crew would change count as upgrade work; local-only ones do not', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = mkdtempSync(join(tmpdir(), 'crew-regen-'));
+  writeFileSync(join(root, 'crew.config.json'), JSON.stringify({ hosts: ['claude'] }));
+  const build = async () => ({ files: [
+    { path: '.claude/crew-cloud-setup.mjs', commit: true, content: 'new' },
+    { path: 'CLAUDE.md', commit: true, content: 'same' },
+    { path: '.claude/settings.local.json', commit: false, content: 'local' },
+  ] });
+  const stale = (_root, f) => f.content !== 'same';
+  assert.deepEqual(await staleGenerated(root, { build, stale }), ['.claude/crew-cloud-setup.mjs']);
+  assert.deepEqual(await staleGenerated(join(root, 'nowhere'), { build, stale }), []);
 });
