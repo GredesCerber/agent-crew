@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ok, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
-import { loadConfig, agentId } from '../core/config.js';
+import { loadConfig, agentId, HARNESS_ROOT } from '../core/config.js';
 import { LOCAL_VERSION, updateHint } from '../core/version.js';
 import { loadAdapter } from './adapters.js';
 import { allLiveSlots, repoSlotsDir } from '../core/session.js';
@@ -28,6 +28,29 @@ export function hostWiring(root, hosts = [], { exists = existsSync, read = (p) =
   }
   if (hosts.includes('codex') && !has('.codex/config.toml', /\[mcp_servers\.crew\]/)) problems.push('codex: the crew MCP server is not in .codex/config.toml');
   if (hosts.includes('antigravity') && !has('.agents/plugins/crew/mcp_config.json', /"crew"\s*:/)) problems.push('antigravity: the crew MCP server is not in .agents/plugins/crew/mcp_config.json');
+  return problems;
+}
+
+const eol = (s) => String(s ?? '').replace(/\r\n/g, '\n');
+
+/**
+ * Are the agent rules in place? AGENTS.md is what every host reads (Codex and Antigravity directly, Claude through
+ * CLAUDE.md's @AGENTS.md import), so without it agents work with no crew rules at all and nobody notices.
+ * -> list of problems (empty = fine).
+ */
+export function agentRules(root, hosts = [], {
+  exists = existsSync,
+  read = (p) => readFileSync(p, 'utf8'),
+  template = join(HARNESS_ROOT, 'templates', 'product', 'AGENTS.md'),
+} = {}) {
+  const problems = [];
+  const rules = join(root, 'AGENTS.md');
+  if (!exists(rules)) problems.push('AGENTS.md is missing, so agents work without the crew rules (crew upgrade --apply puts it back)');
+  else if (exists(template) && eol(read(rules)) !== eol(read(template))) problems.push(`AGENTS.md differs from the crew ${LOCAL_VERSION} rules (crew upgrade shows the diff; a human merges its PR)`);
+  if (hosts.includes('claude')) {
+    const claude = join(root, 'CLAUDE.md');
+    if (!exists(claude) || !/^@AGENTS\.md\s*$/m.test(read(claude))) problems.push('claude: CLAUDE.md does not import @AGENTS.md (crew adapters build)');
+  }
   return problems;
 }
 
@@ -71,7 +94,9 @@ export default {
     const hint = updateHint();
     const wiring = path ? hostWiring(root, config.hosts ?? []) : [];
     if (wiring.length) items.wiring = wiring;
-    const notes = [...(actions.state === 'blocked' ? [`GitHub Actions do not run in this repo (${actions.reason}): run crew tick --every 15 on one machine until the repo owner fixes it, or move the repo to an owner whose Actions run`] : []), ...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
+    const rules = path ? agentRules(root, config.hosts ?? []) : [];
+    if (rules.length) items.rules = rules;
+    const notes = [...(actions.state === 'blocked' ? [`GitHub Actions do not run in this repo (${actions.reason}): run crew tick --every 15 on one machine until the repo owner fixes it, or move the repo to an owner whose Actions run`] : []), ...rules, ...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
     return ok(notes.length ? `Environment OK, but ${notes.join('; ')}` : 'Environment ready', {
       status: notes.length ? 'warning' : 'success',
       artifacts: items,

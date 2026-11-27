@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- `crew doctor` checks the agent rules: it warns when AGENTS.md is missing (agents would work with no crew rules), when it differs from the rules of the installed crew, or when CLAUDE.md does not import it.
+
 ## [0.15.0] — 2026-11-27
 
 ### Added
