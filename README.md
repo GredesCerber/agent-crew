@@ -289,7 +289,8 @@ Claude's code is reviewed by Codex or Antigravity (Gemini), and the other way ro
 | `crew task sweep` / `crew task promote` | return expired leases to the queue / move `waiting` tasks to `ready` when their dependencies close (run by CI) |
 | `crew kickoff [--apply]` | create issues and epics from the approved PRD (dry run by default) |
 | `crew status` | what is in the queue, who does what, what is blocked |
-| `crew worker --host codex` | a headless loop that takes tasks and runs an agent on each (humans only) |
+| `crew worker --host codex [--station build\|review]` | a headless loop that staffs one station of the line: `build` takes tasks and runs an agent on each, `review` reviews PRs one per session and counts once the verdict is on the PR (humans only) |
+| `crew factory [--days 14]` | the line at a glance: each station (queue → build → review) with its work in progress, median time and skill kit, whether Actions run, the bottleneck and the worker to start for it |
 | `crew flow [--days 14]` | how work flows through the stations (queue → build → review), team-wide from GitHub: throughput, lead time, median time per station, the bottleneck and what to do about it, work in progress, merged PRs that closed no task |
 | `crew metrics`, `crew eval` | per-agent metrics from the event log / comparing agents on reference tasks |
 | `crew skills` / `crew skills add <folder\|git URL\|ecc> [--only a,b] [--preset role]` / `crew skills remove <names>` / `crew skills ecc --on\|--off` | the project skill set under a budget (`skills.max`, default 20): add skills from a folder, a git repo or ECC (a role's picks from `ecc/profile.json`, not the whole plugin), remove them, switch the whole ECC plugin (humans) |

@@ -1,4 +1,5 @@
 // crew task next | claim | release | status | heartbeat | sweep | promote
+import { withKit } from '../core/stations.js';
 import { basename, join, resolve, dirname } from 'node:path';
 import { cpSync, existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync, readdirSync, rmdirSync } from 'node:fs';
 import { ok, warn, fail } from '../core/output.js';
@@ -93,6 +94,7 @@ const next = {
     { name: 'area', type: 'string', description: 'area: web, api, ... (empty = any)' },
     { name: 'tier', type: 'string', enum: TIERS, description: 'worker model tier: low takes only simple tasks' },
     { name: 'tasks_only', type: 'boolean', description: 'tasks only, no PR review or merge (for crew worker)' },
+    { name: 'reviews_only', type: 'boolean', description: 'PR reviews only (the review station: crew worker --station review)' },
     { name: 'wait', type: 'number', description: 'no work — wait up to N minutes, checking once a minute (loop in a Codex chat: crew task next --wait 20)' },
   ],
   run(opts = {}, deps = {}) {
@@ -111,14 +113,21 @@ const next = {
       const extra = [...(ideaNote ? [ideaNote] : []), ...(hint ? [`tell the human: ${hint}`] : [])];
       return extra.length ? { ...r, next_actions: [...r.next_actions, ...extra], artifacts: { ...r.artifacts, ...(ideas ? { ideas_waiting: ideas } : {}) } } : r;
     };
+    // the station of the work handed out, and the skills of its kit (src/core/stations.js); never fails the answer
+    const kitOf = (r) => {
+      try {
+        const { config, root } = deps.config ? { config: deps.config, root: deps.root } : loadConfig();
+        return withKit(r, { config, root, present: deps.skills });
+      } catch { return r; }
+    };
     for (;;) {
       const r = this.once(opts, deps);
       const idle = r.status === 'warning' && r.artifacts?.idle === true;
-      if (!idle || now() >= until) return withHint(idle && minutes ? { ...r, summary: `${r.summary} (waited ${minutes} min)` } : r);
+      if (!idle || now() >= until) return withHint(kitOf(idle && minutes ? { ...r, summary: `${r.summary} (waited ${minutes} min)` } : r));
       sleep(Math.min(60_000, until - now()));
     }
   },
-  once({ area, tier = 'high', tasks_only = false } = {}, deps = {}) {
+  once({ area, tier = 'high', tasks_only = false, reviews_only = false } = {}, deps = {}) {
     const paused = (deps.pauseGuard ?? pauseGuard)();
     if (paused) return paused;
     const { config, root } = deps.config ? { config: deps.config, root: deps.root } : loadConfig();
@@ -148,9 +157,18 @@ const next = {
     };
 
     // 1. First unblock the team: merge a ready risk:high PR, do a review.
+    const reviewItem = (rv) => ok(`Review first: PR #${rv.number} ${rv.title} (${rv.risk}, approvals ${rv.have}/${rv.need}, waiting ${rv.age} min)`, {
+      artifacts: { kind: 'review', pr: rv.number, risk: rv.risk, waiting_min: rv.age },
+      next_actions: [`skill crew-review: gh pr view ${rv.number}, gh pr diff ${rv.number}`, `crew pr review ${rv.number} --verdict approve|changes --note "..."`, 'crew task next'],
+    });
     if (!tasks_only) {
       const prs = deps.prs ?? openPrs(root);
       const q = prQueue(prs, { me, login, reviewers: teamReviewers(team), config });
+      // the review station of the factory (crew worker --station review): reviews only, nothing else
+      if (reviews_only) {
+        const rv = q.find((x) => x.kind === 'review' && x.reviewable);
+        return rv ? reviewItem(rv) : warn('No PR waits for your review', { artifacts: { idle: true }, next_actions: ['crew task next --wait 20 — wait for work'] });
+      }
       // My own PR that is waiting on me (fixes, red check, conflict) comes before everything: other tasks are queued behind it.
       const fix = q.find((x) => x.kind === 'fix' && x.mine);
       if (fix) {
@@ -193,12 +211,7 @@ const next = {
         });
       }
       const rv = q.find((x) => x.kind === 'review' && x.reviewable);
-      if (rv) {
-        return ok(`Review first: PR #${rv.number} ${rv.title} (${rv.risk}, approvals ${rv.have}/${rv.need}, waiting ${rv.age} min)`, {
-          artifacts: { kind: 'review', pr: rv.number, risk: rv.risk, waiting_min: rv.age },
-          next_actions: [`skill crew-review: gh pr view ${rv.number}, gh pr diff ${rv.number}`, `crew pr review ${rv.number} --verdict approve|changes --note "..."`, 'crew task next'],
-        });
-      }
+      if (rv) return reviewItem(rv);
     }
 
     if (tasks_only) {

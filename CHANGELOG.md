@@ -5,11 +5,17 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Added
+- **The factory line.** Stations (build, review, research) have skill kits: `crew task next` names the station of the work it hands out and the skills of its kit that the project has (`artifacts.kit`; ECC's role picks by default, `stations.<name>.skills` in `crew.config.json` to set your own).
+- `crew worker --station review` staffs the review station: it reviews PRs one per agent session in the main folder and counts a review once the verdict is on the PR. `crew task next --reviews_only` hands out reviews only.
+- **`crew factory`**: the line at a glance: work in progress, median time and the skill kit of each station, whether Actions run, the bottleneck and the worker to start for it, and warnings for merged PRs that skipped the line or reviews that take seconds.
+
 ## [0.14.0] — 2026-11-27
 
 ### Added
 - **No-CI mode.** While GitHub Actions do not run, `crew tick` runs the `check` job for open same-repo PRs on this machine (a clean checkout of the PR head, `crew.config.json` from the base commit, product dependencies, `crew check`) and posts the `check` commit status. `crew github setup --local_checks --apply` makes `main` count `check` and `crew-guard` from any source, so those statuses unblock merges; setup without the flag switches back to GitHub Actions. `--checks` / `--no_checks` force it on or off.
 - **`crew skills`: the project skill set under a budget.** `crew skills` lists crew's own and added skills against `skills.max` (default 20). `crew skills add <folder | git URL | ecc> [--only a,b] [--preset role]` copies skills into `agents/skills`; an ECC preset takes a role's picks from `ecc/profile.json` instead of the whole plugin, minus its avoid list. `crew skills remove` takes them out, `crew skills ecc --on|--off` switches the whole ECC plugin. crew's own skills cannot be replaced or removed.
+- `crew adapters build` copies a skill's other files (scripts, references, images; up to 1 MB each) next to its generated `SKILL.md` for every host; before, a skill that points at its own files arrived without them.
 - **`crew flow [--days 14]`: the flow through the stations**, team-wide from GitHub: throughput, lead time, median time in queue, build and review, the bottleneck with what to do about it, work in progress, and merged PRs that closed no task (work that went around crew).
 
 ## [0.13.0] — 2026-11-27

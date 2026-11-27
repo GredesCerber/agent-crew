@@ -40,6 +40,7 @@ import captainCmds from '../commands/captain.js';
 import discoverCmds from '../commands/discover.js';
 import skillCmds from '../commands/skills.js';
 import flowCmd from '../commands/flow.js';
+import factoryCmd from '../commands/factory.js';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { loadConfig } from './config.js';
@@ -55,7 +56,7 @@ export const CWD_ARG = {
 /** Command arguments including the shared ones (cwd). */
 export const argsOf = (cmd) => [...(cmd.args ?? []), ...(cmd.usesCwd && !(cmd.args ?? []).some((a) => a.name === 'cwd') ? [CWD_ARG] : [])];
 
-export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board, upgrade, ...askCmds, mergeReady, digest, tick, prLogs, ...ideaCmds, ...captainCmds, ...discoverCmds, ...skillCmds, flowCmd];
+export const commands = [...task, ...kickoff, check, ...pr, guard, status, commit, init, up, adapters, labels, ...compliance, doctor, worker, github, metrics, evalCmd, shots, board, upgrade, ...askCmds, mergeReady, digest, tick, prLogs, ...ideaCmds, ...captainCmds, ...discoverCmds, ...skillCmds, flowCmd, factoryCmd];
 
 /** For MCP: only commands safe for agents (no init/labels/adapters; a human does those). */
 export const agentCommands = commands.filter((c) => c.agent !== false);
