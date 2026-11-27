@@ -5,6 +5,8 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-27
+
 ### Added
 - **The factory line.** Stations (build, review, research) have skill kits: `crew task next` names the station of the work it hands out and the skills of its kit that the project has (`artifacts.kit`; ECC's role picks by default, `stations.<name>.skills` in `crew.config.json` to set your own).
 - `crew worker --station review` staffs the review station: it reviews PRs one per agent session in the main folder and counts a review once the verdict is on the PR. `crew task next --reviews_only` hands out reviews only.
