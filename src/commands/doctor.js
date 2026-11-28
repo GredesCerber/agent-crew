@@ -1,6 +1,7 @@
 // crew doctor — check that the machine is ready to work.
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
+import { worktreesRoot } from './task.js';
 import { ok, fail } from '../core/output.js';
 import { run } from '../core/exec.js';
 import { loadConfig, agentId, HARNESS_ROOT } from '../core/config.js';
@@ -54,6 +55,33 @@ export function agentRules(root, hosts = [], {
   return problems;
 }
 
+/** Windows long paths, from the registry: true, false, or null when it cannot be read. */
+export function longPathsEnabled() {
+  const r = run('reg', ['query', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem', '/v', 'LongPathsEnabled'], { allowFail: true });
+  if (r.code !== 0) return null;
+  const m = /LongPathsEnabled\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(r.stdout);
+  return m ? parseInt(m[1], 16) !== 0 : null;
+}
+
+/** Above this many characters a task folder leaves little room for the repo's own paths under MAX_PATH (260). */
+export const LONG_TASK_FOLDER = 100;
+
+/**
+ * Will task folders fit on Windows? A long or non-ASCII path to them, with Windows long paths off, makes
+ * git worktree add fail, and agents then fall back to --no_worktree. -> list of problems (empty = fine).
+ */
+export function pathRisk(root, { platform = process.platform, config = {}, env = process.env, longPaths = longPathsEnabled } = {}) {
+  if (platform !== 'win32') return [];
+  const folder = win32.join(worktreesRoot(root, { config, env, path: win32 }), '9999');
+  const long = folder.length > LONG_TASK_FOLDER;
+  const nonAscii = /[^\x00-\x7f]/.test(folder);
+  if (!long && !nonAscii) return [];
+  const enabled = longPaths();
+  if (enabled === true && !nonAscii) return [];
+  const why = [long ? `${folder.length} characters` : null, nonAscii ? 'non-ASCII folder names' : null].filter(Boolean).join(', ');
+  return [`task folders go under ${win32.dirname(folder)} (${why})${enabled === false ? ' and Windows long paths are off' : ''}: git worktree add may fail; set CREW_WORKTREES=C:\\crew on this machine${enabled === false ? ' and have an admin turn on LongPathsEnabled' : ''}`];
+}
+
 export default {
   name: 'doctor',
   summary: 'Check the environment: node, git, gh (auth), the agent hosts (claude, codex, antigravity), project config',
@@ -96,7 +124,9 @@ export default {
     if (wiring.length) items.wiring = wiring;
     const rules = path ? agentRules(root, config.hosts ?? []) : [];
     if (rules.length) items.rules = rules;
-    const notes = [...(actions.state === 'blocked' ? [`GitHub Actions do not run in this repo (${actions.reason}): run crew tick --every 15 on one machine until the repo owner fixes it, or move the repo to an owner whose Actions run`] : []), ...rules, ...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
+    const paths = path ? pathRisk(root, { config }) : [];
+    if (paths.length) items.paths = paths;
+    const notes = [...(actions.state === 'blocked' ? [`GitHub Actions do not run in this repo (${actions.reason}): run crew tick --every 15 on one machine until the repo owner fixes it, or move the repo to an owner whose Actions run`] : []), ...rules, ...paths, ...wiring.map((w) => `${w} (crew adapters build)`), hostsMissing.length ? `agents missing: ${hostsMissing.join(', ')}` : null, hint ? `crew is outdated (${LOCAL_VERSION})` : null].filter(Boolean);
     return ok(notes.length ? `Environment OK, but ${notes.join('; ')}` : 'Environment ready', {
       status: notes.length ? 'warning' : 'success',
       artifacts: items,

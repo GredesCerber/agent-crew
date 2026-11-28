@@ -2,7 +2,7 @@
 import { withKit } from '../core/stations.js';
 import { basename, join, resolve, dirname } from 'node:path';
 import { cpSync, existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync, readdirSync, rmdirSync } from 'node:fs';
-import { ok, warn, fail } from '../core/output.js';
+import { ok, warn, fail, CrewError } from '../core/output.js';
 import { git, run, ghJson } from '../core/exec.js';
 import { loadConfig, agentId } from '../core/config.js';
 import {
@@ -347,7 +347,7 @@ const claim = {
 
     let ws;
     try {
-      ws = prepareWorkspace({ root, id, title: issue.title, no_worktree });
+      ws = prepareWorkspace({ root, id, title: issue.title, no_worktree, config });
       if (ws.worktree && ws.worktree !== root) pinId(ws.worktree, me);
     } catch (e) {
       // Rollback: the task must not stay stuck in claimed until sweep (~45 min).
@@ -356,7 +356,7 @@ const claim = {
       run('gh', ['issue', 'edit', String(id), '--remove-assignee', '@me'], { allowFail: true });
       return fail('workspace_failed', `Could not prepare a working copy for #${id}`, {
         cause_hint: e.recovery?.cause_hint || e.message,
-        retry: 'crew task next',
+        retry: e.code === 'worktree_failed' ? e.recovery.retry : 'crew task next',
         stop_when: 'the same error twice — tell the human (git worktree list, git branch)',
       });
     }
@@ -379,15 +379,41 @@ export function mainRepoRoot(root, { sh = (args) => git(args, { cwd: root, allow
   return common && basename(common) === '.git' ? dirname(resolve(common)) : root;
 }
 
-/** Where the folder of task <id> goes: one "<project>.worktrees" folder next to the project, not one folder per task. */
-export const taskFolder = (main, id) => join(dirname(main), `${basename(main)}.worktrees`, String(id));
+/**
+ * The folder that holds this project's task folders. By default one "<project>.worktrees" folder next to the
+ * project. On Windows a long or non-ASCII project path plus the repo's own deep paths can pass MAX_PATH, so a
+ * machine (CREW_WORKTREES) or the project (worktrees.dir in crew.config.json) can move it to a short path:
+ * then it is <dir>/<project>. A relative dir is taken from the project folder.
+ */
+export function worktreesRoot(main, { config = {}, env = process.env, path = { join, resolve, dirname, basename } } = {}) {
+  const dir = env.CREW_WORKTREES || config.worktrees?.dir;
+  return dir ? path.join(path.resolve(main, dir), path.basename(main)) : path.join(path.dirname(main), `${path.basename(main)}.worktrees`);
+}
+
+/** Where the folder of task <id> goes: one shared folder for the project (worktreesRoot), not one folder per task. */
+export const taskFolder = (main, id, opts) => join(worktreesRoot(main, opts), String(id));
+
+/** A failed `git worktree add` as a CrewError; a path that is too long (Windows MAX_PATH) says how to get a short one. */
+export function worktreeAddError(path, out = {}) {
+  const text = String(out.stderr || out.stdout || '').split('\n').slice(0, 3).join(' | ');
+  const tooLong = /too long/i.test(text);
+  return new CrewError('worktree_failed', `git worktree add ${path} failed`, {
+    cause_hint: tooLong
+      ? `the path is too long for Windows (task folder ${path.length} characters, plus the repo's own paths): ${text}`
+      : text || `git exited with code ${out.code}`,
+    retry: tooLong
+      ? 'put task folders on a short path: set CREW_WORKTREES=C:\\crew on this machine (or "worktrees": {"dir": "C:/crew"} in crew.config.json), then crew claim again; an admin turns on Windows long paths (LongPathsEnabled). Do not fall back to --no_worktree'
+      : 'git worktree list, then crew claim again',
+    stop_when: 'the same error twice: tell the human',
+  });
+}
 
 /**
  * Branch crew/<id>-* and worktree for a task. Claiming again (after release/timeout) reuses
  * the existing branch and worktree instead of failing on `git worktree add -b`. Throws CrewError on a git failure.
  * → { branch, worktree, reused }
  */
-export function prepareWorkspace({ root: here, id, title, no_worktree = false }) {
+export function prepareWorkspace({ root: here, id, title, no_worktree = false, config = {}, env = process.env, platform = process.platform }) {
   const root = no_worktree ? here : mainRepoRoot(here);
   git(['fetch', 'origin'], { cwd: root, allowFail: true });
   const existing = git(['for-each-ref', '--format=%(refname:short)', `refs/heads/crew/${id}-*`], { cwd: root, allowFail: true })
@@ -400,8 +426,10 @@ export function prepareWorkspace({ root: here, id, title, no_worktree = false })
     return { branch, worktree: root, reused: existing.length > 0 };
   }
 
-  const worktree = taskFolder(root, id);
+  const worktree = taskFolder(root, id, { config, env });
   git(['worktree', 'prune'], { cwd: root, allowFail: true }); // forget worktrees whose folders were deleted
+  // crew up sets it too, but a clone that never ran crew up would hit MAX_PATH in the new folder
+  if (platform === 'win32') git(['config', 'core.longpaths', 'true'], { cwd: root, allowFail: true });
   const registered = parseWorktrees(git(['worktree', 'list', '--porcelain'], { cwd: root }).stdout);
   // the task's folder as it is now, or the one an older crew made (<project>-wt-<id>) for the same branch
   const found = registered.find((w) => samePath(w.path, worktree)) ?? registered.find((w) => w.branch === branch);
@@ -414,7 +442,8 @@ export function prepareWorkspace({ root: here, id, title, no_worktree = false })
     return { branch, worktree: path, reused: true, copied: syncLocalFiles(root, path) };
   }
   mkdirSync(dirname(worktree), { recursive: true });
-  git(existing.length ? ['worktree', 'add', worktree, branch] : ['worktree', 'add', '-b', branch, worktree, base], { cwd: root });
+  const added = git(existing.length ? ['worktree', 'add', worktree, branch] : ['worktree', 'add', '-b', branch, worktree, base], { cwd: root, allowFail: true });
+  if (added.code !== 0) throw worktreeAddError(worktree, added);
   return { branch, worktree, reused: existing.length > 0, copied: syncLocalFiles(root, worktree) };
 }
 
@@ -711,7 +740,8 @@ const cleanup = {
   summary: 'Remove the folders (worktrees) of closed tasks: with no uncommitted changes and with the work already saved in main or on GitHub',
   args: [{ name: 'dry_run', type: 'boolean', description: 'show only what would be removed' }],
   run({ dry_run = false, cwd } = {}) {
-    const root = mainRepoRoot(loadConfig(cwd).root);
+    const loaded = loadConfig(cwd);
+    const root = mainRepoRoot(loaded.root);
     git(['fetch', '--quiet', 'origin'], { cwd: root, allowFail: true });
     const wts = taskWorktrees(git(['worktree', 'list', '--porcelain'], { cwd: root }).stdout);
     const states = new Map();
@@ -734,8 +764,8 @@ const cleanup = {
         git(['branch', '-D', w.branch], { cwd: root, allowFail: true }); // the work is already in main or on GitHub (checked above)
         removed.push(w.path);
       }
-      // the shared <project>.worktrees folder goes too once its last task folder is gone
-      const shared = join(dirname(root), `${basename(root)}.worktrees`);
+      // the project's shared folder of task folders goes too once its last task folder is gone
+      const shared = worktreesRoot(root, { config: loaded.config });
       try { if (existsSync(shared) && readdirSync(shared).length === 0) rmdirSync(shared); } catch { /* still in use */ }
     }
     const kept = plan.filter((p) => !p.remove).map((p) => `${p.path} — ${p.why}`);

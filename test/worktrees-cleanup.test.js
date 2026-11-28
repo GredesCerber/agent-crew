@@ -74,3 +74,25 @@ test('old logs are pruned: the newest are kept, older ones only while recent', (
   mkdirSync(join(dir, 'sub'));
   assert.deepEqual(pruneLogs(dir, { keep: 0, days: 0, now: now + 1 }).sort(), ['check-0.txt', 'check-1.txt']);
 });
+
+test('worktreesRoot: next to the project by default; CREW_WORKTREES or worktrees.dir move it to <dir>/<project>', async () => {
+  const { worktreesRoot, taskFolder } = await import('../src/commands/task.js');
+  const { join, resolve } = await import('node:path');
+  const main = resolve('/work/Проекты/app');
+  assert.equal(worktreesRoot(main, { env: {} }), join(resolve('/work/Проекты'), 'app.worktrees'));
+  assert.equal(taskFolder(main, 7, { env: { CREW_WORKTREES: resolve('/crew') } }), join(resolve('/crew'), 'app', '7'));
+  assert.equal(taskFolder(main, 7, { env: {}, config: { worktrees: { dir: resolve('/short') } } }), join(resolve('/short'), 'app', '7'));
+  // the machine wins over the project
+  assert.equal(worktreesRoot(main, { env: { CREW_WORKTREES: resolve('/crew') }, config: { worktrees: { dir: resolve('/short') } } }), join(resolve('/crew'), 'app'));
+});
+
+test('worktreeAddError: "Filename too long" says how to get a short path, never --no_worktree as the way out', async () => {
+  const { worktreeAddError } = await import('../src/commands/task.js');
+  const e = worktreeAddError('C:\\long\\path\\7', { code: 128, stderr: 'error: unable to create file web/node_modules/x: Filename too long' });
+  assert.equal(e.code, 'worktree_failed');
+  assert.match(e.recovery.cause_hint, /too long for Windows/);
+  assert.match(e.recovery.retry, /CREW_WORKTREES/);
+  assert.match(e.recovery.retry, /Do not fall back to --no_worktree/);
+  const other = worktreeAddError('/x/7', { code: 128, stderr: 'fatal: invalid reference: main' });
+  assert.match(other.recovery.cause_hint, /invalid reference/);
+});

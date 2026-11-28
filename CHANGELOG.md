@@ -5,6 +5,9 @@ Every PR adds a line under **Unreleased**; a release renames that section to the
 
 ## [Unreleased]
 
+### Fixed
+- On Windows, `crew claim` no longer leaves agents with `--no_worktree` when the project sits under a long or non-ASCII path. Task folders can go to a short path: `CREW_WORKTREES` (per machine) or `worktrees.dir` in `crew.config.json` puts them in `<dir>/<project>/<id>`. `crew claim` turns on `core.longpaths`, and a failed `git worktree add` says how long the path is and how to get a short one. `crew doctor` warns when task folders are at risk (#2).
+
 ## [0.15.1] — 2026-11-28
 
 ### Added

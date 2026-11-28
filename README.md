@@ -105,6 +105,8 @@ crew doctor
 git config --global core.longpaths true
 ```
 
+If the project sits under a long path or one with non-ASCII folder names (such as `OneDrive\Документы\...`), put task folders on a short path. It is a per-machine setting: `setx CREW_WORKTREES C:\crew`, then open a new terminal. The project's own default goes in `crew.config.json` as `"worktrees": {"dir": "C:/crew"}`. Task folders then go to `C:\crew\<project>\<id>`. An admin can also turn on Windows long paths (`LongPathsEnabled`). `crew doctor` warns when task folders are at risk.
+
 ### 2. Create the project (captain)
 
 ```bash
@@ -210,7 +212,7 @@ Members never plan; only the captain runs `crew kickoff`.
 ## Concepts
 
 ### Tasks and leases
-A task is a GitHub issue with `status:*`, `area:*`, `tier:*` and `risk:*` labels. `crew task claim <id>` takes it: the label changes, a lease marker is written to a comment, the branch `crew/<id>-...` and a separate worktree are created. The lease lasts 45 minutes and is extended by activity (`crew task heartbeat`, crew markers in the issue, or a push to the `crew/<id>-*` branch). If an agent dies, the task returns to the queue by itself (a GitHub Action sweeps every 15 minutes). Task folders live together next to the project, in `<project>.worktrees/<id>` (named after the main folder, also when a task is claimed from inside another task's folder). `crew task next` cleans up by itself at most every 6 hours: it removes the folders of closed tasks that have no uncommitted changes and whose work is already saved in `main` or on GitHub, and old logs in `.crew/logs` (the newest 50 stay, older ones after 14 days). `crew task cleanup` does the same on demand.
+A task is a GitHub issue with `status:*`, `area:*`, `tier:*` and `risk:*` labels. `crew task claim <id>` takes it: the label changes, a lease marker is written to a comment, the branch `crew/<id>-...` and a separate worktree are created. The lease lasts 45 minutes and is extended by activity (`crew task heartbeat`, crew markers in the issue, or a push to the `crew/<id>-*` branch). If an agent dies, the task returns to the queue by itself (a GitHub Action sweeps every 15 minutes). Task folders live together next to the project, in `<project>.worktrees/<id>` (named after the main folder, also when a task is claimed from inside another task's folder), or in `<dir>/<project>/<id>` when `CREW_WORKTREES` or `worktrees.dir` is set. `crew task next` cleans up by itself at most every 6 hours: it removes the folders of closed tasks that have no uncommitted changes and whose work is already saved in `main` or on GitHub, and old logs in `.crew/logs` (the newest 50 stay, older ones after 14 days). `crew task cleanup` does the same on demand.
 
 ### Areas and owners
 Every task belongs to exactly one area (`web`, `api`, `infra`, ...). The `crew-team` block of the PRD maps areas to people:

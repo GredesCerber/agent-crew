@@ -38,3 +38,17 @@ test('agentRules: an AGENTS.md that drifted from the package rules is reported; 
 test('agentRules: the real template matches itself (the package ships one)', () => {
   assert.deepEqual(agentRules(join(import.meta.dirname, '..', 'templates', 'product'), []), []);
 });
+
+test('pathRisk: a long or non-ASCII task folder on Windows is reported with the fix; a short ASCII one or another OS is not', async () => {
+  const { pathRisk } = await import('../src/commands/doctor.js');
+  const env = {};
+  const deep = 'C:\\Users\\Пользователь\\OneDrive\\Документы\\Проекты\\matstat-lab';
+  const [p] = pathRisk(deep, { platform: 'win32', env, longPaths: () => false });
+  assert.match(p, /non-ASCII.*long paths are off.*CREW_WORKTREES/);
+  assert.deepEqual(pathRisk(deep, { platform: 'linux', env, longPaths: () => false }), []);
+  assert.deepEqual(pathRisk(String.raw`C:\src\app`, { platform: 'win32', env, longPaths: () => false }), []);
+  // the task folders moved to a short path: nothing to warn about
+  assert.deepEqual(pathRisk(deep, { platform: 'win32', env: { CREW_WORKTREES: String.raw`C:\crew` }, longPaths: () => false }), []);
+  // long but ASCII, with long paths on: fine
+  assert.deepEqual(pathRisk('C:\\' + 'a'.repeat(120) + '\\app', { platform: 'win32', env, longPaths: () => true }), []);
+});
